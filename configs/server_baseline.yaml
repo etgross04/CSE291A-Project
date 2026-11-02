@@ -1,0 +1,21 @@
+# Fixed llama-server settings shared by every Phase 1 run.
+# Per-experiment values (ctx_size, parallel, kv_unified, cache_ram, ...) override these.
+# Every flag below was checked against `llama-server --help` for build b11721 (ff5a23376).
+gpu_layers: all          # -ngl; default is 'auto', which may offload fewer layers
+fit: "off"               # --fit; default 'on' silently changes unset -c / -ngl to fit memory
+flash_attn: "on"         # -fa; default 'auto'
+cache_type_k: f16        # -ctk
+cache_type_v: f16        # -ctv
+ctx_size: 32768          # -c ; total KV capacity in tokens (split across slots unless unified)
+parallel: 4              # -np ; = K for the FIFO baseline
+kv_unified: false        # -kvu / -no-kvu ; default is ON only when -np is auto
+cache_ram: 0             # -cram MiB; host-RAM prompt cache (default 8192!). 0 = disabled (baseline decision 2026-11-02)
+cache_idle_slots: false  # --cache-idle-slots (default on; needs cache_ram)
+cache_reuse: 0           # --cache-reuse; KV-shift chunk reuse, default 0 (off)
+slot_prompt_similarity: 0.10  # -sps; default 0.10, only matters when id_slot is not given
+context_shift: false     # default disabled
+batch_size: 2048         # -b default
+ubatch_size: 512         # -ub default
+metrics: true            # --metrics (Prometheus /metrics)
+webui: false             # --no-webui
+slot_save_path: null     # --slot-save-path; set for save/restore probes

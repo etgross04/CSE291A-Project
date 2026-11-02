@@ -1,0 +1,8 @@
+# Machine-specific paths. Copy to configs/local.yaml (gitignored) and edit.
+llama_server: C:/llm/llama.cpp/b11721/llama-server.exe
+model: C:/llm/models/Qwen3-8B-Q4_K_M.gguf
+results_dir: C:/llm/results
+corpus_dir: C:/llm/corpus
+host: 127.0.0.1
+port: 8080
+gpu_index: 0

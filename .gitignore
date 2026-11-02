@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Machine-specific paths (copy configs/local.example.yaml -> configs/local.yaml)
+configs/local.yaml
+
+# Large artifacts live outside the repo (C:\llm on the desktop); never commit these
+*.gguf
+*.bin
+results/*
+!results/README.md
+!results/summaries/
+slot_saves/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+CLAUDE.md

@@ -1,0 +1,56 @@
+{
+  "books_in_order": [
+    {
+      "id": 1342,
+      "title": "Pride and Prejudice",
+      "url": "https://www.gutenberg.org/cache/epub/1342/pg1342.txt",
+      "raw_sha256": "3f6bb9d6f78e0293b56acd4714dd68cb7d6d1d293402031ce9d5a216bcaf9d75",
+      "clean_sha256": "ec5006ab5edb21cf0ee304712665ef03a8a96bc5ef2e8bb70877dca86973d79c",
+      "clean_chars": 728714
+    },
+    {
+      "id": 2701,
+      "title": "Moby Dick",
+      "url": "https://www.gutenberg.org/cache/epub/2701/pg2701.txt",
+      "raw_sha256": "b5e88b71a1cda068e9ab1d94344c9d932338ba6da1a66def97a1aecd9cfcc87d",
+      "clean_sha256": "b8d4a465cfb1eb0c7c8a3bd597f0af7666d00caa5d3a40aa52f7af9819e31d7b",
+      "clean_chars": 1218974
+    },
+    {
+      "id": 98,
+      "title": "A Tale of Two Cities",
+      "url": "https://www.gutenberg.org/cache/epub/98/pg98.txt",
+      "raw_sha256": "d54c2b80d40a40b982cd88852c6180bb944d95acdb028af3d0e01a1750681784",
+      "clean_sha256": "d614b101548dd9271afa7f63f0899640cf0b91ccf3daae0ac46e5bf09d62105c",
+      "clean_chars": 757605
+    },
+    {
+      "id": 84,
+      "title": "Frankenstein",
+      "url": "https://www.gutenberg.org/cache/epub/84/pg84.txt",
+      "raw_sha256": "2b97b7f8aad508649481d8dd4f6b54f9b965ddb3ba634e9151c815f537b49e42",
+      "clean_sha256": "bde72e6909fb0caebf375b81f7a63140d2b6ffab49a473c670a498dee96934a8",
+      "clean_chars": 419337
+    },
+    {
+      "id": 1661,
+      "title": "The Adventures of Sherlock Holmes",
+      "url": "https://www.gutenberg.org/cache/epub/1661/pg1661.txt",
+      "raw_sha256": "922e2a12ccb43a4c9544c260b2166c6ad2097aeb5957faeee113f173bb857cd0",
+      "clean_sha256": "a4866cc751985c68a8dec9753cc5afc4f5c7da0332f1be320e053ae8d19a7c71",
+      "clean_chars": 562203
+    },
+    {
+      "id": 2600,
+      "title": "War and Peace",
+      "url": "https://www.gutenberg.org/cache/epub/2600/pg2600.txt",
+      "raw_sha256": "2d5bb2ad5f422765e714617e21fa31bbaf8958aa79682c86fca6660fcc5d1b2b",
+      "clean_sha256": "c7156148ecaa12b6416cf816540d8dede2014982554a835e61076f0dd8bf0c2d",
+      "clean_chars": 3208273
+    }
+  ],
+  "separator": "\n\n",
+  "corpus_chars": 6895116,
+  "corpus_sha256": "d3bf5c23238a1e45a3a0ecd365ec675a3dad5cba7c3808327de83e0a4582bd86",
+  "path": "C:\\llm\\corpus\\corpus.txt"
+}
