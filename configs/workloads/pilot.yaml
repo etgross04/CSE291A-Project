@@ -1,0 +1,15 @@
+# End-to-end pilot (CLAUDE.md s10): K=4, ~30 agentic tasks. Fixed seed; not part of dev/eval.
+name: pilot
+seed: 42
+fixed_seed: true
+num_tasks: 30
+arrival: {type: closed, agents: 8}
+shared_prefix_tokens: 512
+task_classes:
+  - name: agentic
+    weight: 1.0
+    steps: {dist: uniform_int, low: 4, high: 8}
+    init_ctx: {dist: uniform_int, low: 1024, high: 2048}
+    out: {dist: choice, values: [128, 256]}
+    tool_out: {dist: uniform_int, low: 256, high: 1024}
+    tool_delay: {dist: lognormal, median_s: 2.0, sigma: 0.75, max_s: 30.0}

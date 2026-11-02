@@ -1,0 +1,35 @@
+# Mixed traffic; class definitions copied from chat/long_output/long_context/agentic (keep in sync).
+name: blend
+seed: 1000
+num_tasks: 80
+arrival: {type: closed, agents: 16}
+shared_prefix_tokens: 512
+task_classes:
+  - name: chat
+    weight: 0.4
+    steps: 1
+    init_ctx: {dist: uniform_int, low: 256, high: 1024}
+    out: {dist: choice, values: [64, 128, 256]}
+    tool_out: null
+    tool_delay: null
+  - name: long_output
+    weight: 0.1
+    steps: 1
+    init_ctx: {dist: uniform_int, low: 512, high: 2048}
+    out: {dist: choice, values: [512, 768, 1024]}
+    tool_out: null
+    tool_delay: null
+  - name: long_context
+    weight: 0.2
+    steps: {dist: uniform_int, low: 1, high: 2}
+    init_ctx: {dist: uniform_int, low: 6144, high: 12288}
+    out: 128
+    tool_out: 256
+    tool_delay: 1.0
+  - name: agentic
+    weight: 0.3
+    steps: {dist: uniform_int, low: 4, high: 8}
+    init_ctx: {dist: uniform_int, low: 1024, high: 2048}
+    out: {dist: choice, values: [128, 256]}
+    tool_out: {dist: uniform_int, low: 256, high: 1024}
+    tool_delay: {dist: lognormal, median_s: 2.0, sigma: 0.75, max_s: 30.0}

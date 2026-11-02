@@ -1,0 +1,14 @@
+# Multi-step agents with tool calls: context grows each step; idle KV during tool delays.
+name: agentic
+seed: 1000
+num_tasks: 60
+arrival: {type: closed, agents: 16}
+shared_prefix_tokens: 512
+task_classes:
+  - name: agentic
+    weight: 1.0
+    steps: {dist: uniform_int, low: 4, high: 8}
+    init_ctx: {dist: uniform_int, low: 1024, high: 2048}
+    out: {dist: choice, values: [128, 256]}
+    tool_out: {dist: uniform_int, low: 256, high: 1024}
+    tool_delay: {dist: lognormal, median_s: 2.0, sigma: 0.75, max_s: 30.0}

@@ -1,0 +1,15 @@
+# Long prompts: prefill- and KV-heavy. Peak ctx <= 13.3k, so it fits a 16k slot (K=4 at -c 65536) but
+# overflows 8k slots (K=8) under the static per-slot split -- intentionally.
+name: long_context
+seed: 1000
+num_tasks: 40
+arrival: {type: closed, agents: 16}
+shared_prefix_tokens: 512
+task_classes:
+  - name: long_context
+    weight: 1.0
+    steps: {dist: uniform_int, low: 1, high: 2}
+    init_ctx: {dist: uniform_int, low: 6144, high: 12288}
+    out: 128
+    tool_out: 256
+    tool_delay: 1.0

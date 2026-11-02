@@ -1,0 +1,14 @@
+# Long generations: a slot (and its growing KV) stays busy ~4-8 s at ~125 tok/s single-stream.
+name: long_output
+seed: 1000
+num_tasks: 40
+arrival: {type: closed, agents: 16}
+shared_prefix_tokens: 512
+task_classes:
+  - name: long_output
+    weight: 1.0
+    steps: 1
+    init_ctx: {dist: uniform_int, low: 512, high: 2048}
+    out: {dist: choice, values: [512, 768, 1024]}
+    tool_out: null
+    tool_delay: null

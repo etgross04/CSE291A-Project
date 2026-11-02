@@ -1,0 +1,14 @@
+# Short single-step requests: little KV, decode-bound.
+name: chat
+seed: 1000
+num_tasks: 120
+arrival: {type: closed, agents: 16}
+shared_prefix_tokens: 512
+task_classes:
+  - name: chat
+    weight: 1.0
+    steps: 1
+    init_ctx: {dist: uniform_int, low: 256, high: 1024}
+    out: {dist: choice, values: [64, 128, 256]}
+    tool_out: null
+    tool_delay: null

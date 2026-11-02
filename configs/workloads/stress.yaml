@@ -1,0 +1,14 @@
+# Long-running agents with large tool outputs: every task ends at 13,824 tokens of KV.
+name: stress
+seed: 1000
+num_tasks: 32
+arrival: {type: closed, agents: 16}
+shared_prefix_tokens: 512
+task_classes:
+  - name: stress
+    weight: 1.0
+    steps: 8
+    init_ctx: 4096
+    out: 256
+    tool_out: 1024
+    tool_delay: {dist: lognormal, median_s: 2.0, sigma: 0.75, max_s: 30.0}
