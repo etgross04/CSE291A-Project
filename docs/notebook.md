@@ -183,3 +183,11 @@ E4 pilot (agentic, constant delays, K=4, 24 tasks, rep0, all VALID):
 
 - **Crossover between 0 and 5 s.** With no tool time, pinned is 1.7× faster (`any` loses its cache to slot migration). At 5 s, `any` is 15% faster: pinned holds slots idle (1.59 of 4 busy).
 - `any` takes ~190 s at both delays: it hides the tool time completely and pays recompute instead. Pinned pays the tool time. The full E4 grid (1, 15, 30 s) locates the crossover. Phase 2 direction: release a slot during long tool calls but keep (or save/restore) its context, getting both effects.
+
+## 2026-11-03 — Grid cut for time (~14.5 h → ~11.5 h), dirty-tree runs now reproducible
+
+- E3, E5, E6: 2 reps (they characterize behaviour; only E2 picks the tuned baseline, which keeps 3).
+- E4 delays 0/1/5/15/30 → **0/1/2/5/15 s**. The pilot crossover is between 0 and 5 s; 30 s was the costliest point. The 15 s point runs 16 tasks (4 per slot at K=4) via a per-workload `run:` override.
+- E6 pools 65,536/49,152/32,768/24,576/16,384 → **65,536/32,768/24,576/16,384**.
+- New plan: E1 3, E2 90, E3 8, E4 42, E5 12, E6 16 = 171 runs.
+- Each run made from uncommitted code now writes `repo.diff` (tracked changes vs `repo_commit` plus untracked files as new-file diffs; `manifest.repo_diff`). Checked: HEAD + patch reproduces the working tree. The E1/E4 pilot runs from earlier today predate this; they ran from 5943f33 + the uncommitted sweep-runner change.

@@ -4,5 +4,5 @@ base: {slot_mode: pinned, pool: 65536}
 workloads: [growth_short, growth_long]
 seeds: [1000]
 grid: {k: [1, 4]}
-reps: 3
+reps: 2   # characterization, not baseline selection (2026-11-03)
 pilot: {grid: {k: [4]}, reps: 1}

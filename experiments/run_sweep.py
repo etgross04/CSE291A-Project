@@ -47,8 +47,15 @@ def load_experiment(path: Path | str) -> dict:
 
 def norm_workload(w) -> dict:
     if isinstance(w, str):
-        return {"name": w, "from": None, "set": {}}
-    return {"name": w["name"], "from": w.get("from"), "set": dict(w.get("set") or {})}
+        return {"name": w, "from": None, "set": {}, "run": {}}
+    unknown = set(w) - {"name", "from", "set", "run"}
+    if unknown:
+        raise ValueError(f"workload {w.get('name')}: unknown keys {sorted(unknown)}")
+    run = dict(w.get("run") or {})
+    for key in run:
+        if key not in RUN_FIELDS or key in ("workload", "rep"):
+            raise ValueError(f"workload {w['name']}: run override {key!r} is not a RunConfig field")
+    return {"name": w["name"], "from": w.get("from"), "set": dict(w.get("set") or {}), "run": run}
 
 
 def spec_for(exp: dict, pilot: bool) -> dict:
@@ -102,7 +109,7 @@ def expand(exp: dict, pilot: bool, wl_info) -> list[dict]:
         for seed in spec["seeds"] or [None]:
             info = wl_info(w, seed)
             for pt in grid_points(spec):
-                fields = {**spec["base"], **pt}
+                fields = {**spec["base"], **w["run"], **pt}
                 if fields.get("tasks") is None:
                     fields["tasks"] = capped_tasks(info["num_tasks"], int(fields.get("k", 4)), spec["task_cap"])
                 for rep in range(spec["reps"]):
@@ -134,7 +141,7 @@ def make_wl_info(local: dict):
     cache: dict = {}
 
     def wl_info(w: dict, seed):
-        key = (json.dumps(w, sort_keys=True), seed)
+        key = (json.dumps({k: w[k] for k in ("name", "from", "set")}, sort_keys=True), seed)
         if key in cache:
             return cache[key]
         base = WORKLOADS_DIR / f"{w['from'] or w['name']}.yaml"

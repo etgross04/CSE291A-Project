@@ -4,9 +4,10 @@ base: {k: 4, pool: 65536, tasks: 24}
 workloads:
   - {name: agentic_d0,  from: agentic, set: {task_classes.0.tool_delay: 0.0}}
   - {name: agentic_d1,  from: agentic, set: {task_classes.0.tool_delay: 1.0}}
+  - {name: agentic_d2,  from: agentic, set: {task_classes.0.tool_delay: 2.0}}
   - {name: agentic_d5,  from: agentic, set: {task_classes.0.tool_delay: 5.0}}
-  - {name: agentic_d15, from: agentic, set: {task_classes.0.tool_delay: 15.0}}
-  - {name: agentic_d30, from: agentic, set: {task_classes.0.tool_delay: 30.0}}
+  # 16 tasks = 4 per slot at K=4 (2026-11-03: cut for time; 30 s point dropped, crossover is in 0-5 s)
+  - {name: agentic_d15, from: agentic, set: {task_classes.0.tool_delay: 15.0}, run: {tasks: 16}}
   - trace_agentic
   - trace_agentic_heavy
 seeds: [1000]

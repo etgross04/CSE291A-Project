@@ -7,5 +7,5 @@ workloads:
 seeds: [1000]
 grid: {cache_prompt: [true, false], erase_finished: [true, false]}
 exclude: [{cache_prompt: false, erase_finished: false}]
-reps: 3
+reps: 2   # characterization, not baseline selection (2026-11-03)
 pilot: {workloads: [{name: agentic_p4096, from: agentic, set: {shared_prefix_tokens: 4096}}], grid: {cache_prompt: [true], erase_finished: [true, false]}, reps: 1}

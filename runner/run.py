@@ -7,6 +7,7 @@ Run directory contents:
     warmup.jsonl     warm-up requests (discarded from analysis)
     server.log       llama-server stdout/stderr, first line = full command line
     manifest.json    environment, config, hashes, pre-launch VRAM, times, outcome
+    repo.diff        only if the repo had uncommitted changes: the patch vs repo_commit
     DONE             written last, only if the run completed (resumability marker)
 
 Resumable: a run dir with DONE is skipped. A run dir without DONE (crashed or interrupted earlier) is
@@ -158,7 +159,7 @@ def _sha256(path: Path) -> str:
 
 def run_one(cfg: RunConfig, run_dir: Path | None = None, local: dict | None = None) -> Path:
     from runner.corpus import Corpus
-    from runner.env import environment, gpu_mem_used_mib
+    from runner.env import environment, gpu_mem_used_mib, write_repo_diff
     from runner.samplers import NvmlSource, RssSource, SystemSampler
     from runner.server import Server, load_local, load_server_config
 
@@ -191,6 +192,8 @@ def run_one(cfg: RunConfig, run_dir: Path | None = None, local: dict | None = No
     }
     write_manifest = lambda: (run_dir / "manifest.json").write_text(  # noqa: E731
         json.dumps(manifest, indent=1, default=str), encoding="utf-8")
+    if write_repo_diff(run_dir / "repo.diff"):  # dirty tree: keep the exact code this run used
+        manifest["repo_diff"] = "repo.diff"
     manifest["prelaunch_vram_mib"] = round(gpu_mem_used_mib(local.get("gpu_index", 0)), 1)
     write_manifest()
 

@@ -64,7 +64,6 @@ def test_e2_grid():
 
 def test_e5_exclude_and_flags():
     runs = runs_of("E5_reuse.yaml")
-    assert len(runs) == 2 * 3 * 3
     assert not any(not r["cfg"].cache_prompt and r["cfg"].erase_finished is False for r in runs)
     names = {r["cfg"].default_dir(Path("R")).parent.name for r in runs}
     assert "fifo-pinned_K4_c65536_kvu_n24" in names            # erase on = the baseline, no suffix
@@ -74,7 +73,6 @@ def test_e5_exclude_and_flags():
 
 def test_e6_no_gate_has_no_budget_but_still_erases():
     runs = runs_of("E6_memory_budget.yaml")
-    assert len(runs) == 5 * 2 * 3
     nogate = [r["cfg"] for r in runs if not r["cfg"].admission_gate]
     assert all(c.kv_budget is None and c.kv_unified and c.erase for c in nogate)
     assert all(c.default_dir(Path("R")).parent.name.endswith("_nogate") for c in nogate)
@@ -151,4 +149,16 @@ def test_keep_finished_skips_erase():
 
 
 def test_norm_workload():
-    assert norm_workload("chat") == {"name": "chat", "from": None, "set": {}}
+    assert norm_workload("chat") == {"name": "chat", "from": None, "set": {}, "run": {}}
+    with pytest.raises(ValueError):
+        norm_workload({"name": "x", "run": {"bogus": 1}})
+
+
+def test_cut_grids_2026_11_03():
+    e4 = runs_of("E4_idle_periods.yaml")
+    assert len(e4) == 7 * 2 * 3
+    tasks = {r["workload"]["name"]: r["cfg"].tasks for r in e4}
+    assert tasks["agentic_d15"] == 16 and tasks["agentic_d5"] == 24 and "agentic_d30" not in tasks
+    assert len(runs_of("E3_context_growth.yaml")) == 2 * 2 * 2
+    assert len(runs_of("E5_reuse.yaml")) == 2 * 3 * 2
+    assert len(runs_of("E6_memory_budget.yaml")) == 4 * 2 * 2

@@ -6,7 +6,7 @@ Each YAML expands to a list of single runs (`runner/run.py`); each run gets a fr
 |---|---|
 | `name`, `purpose` | Identification; `purpose` is free text. |
 | `base` | `RunConfig` fields shared by every point (`k`, `slot_mode`, `pool`, `agents`, `tasks`, `cache_prompt`, `erase_finished`, `admission_gate`, `kv_unified`, `deadline_s`, ...). |
-| `workloads` | List of workload names (`configs/workloads/<name>.yaml`) or variants `{name, from, set: {dotted.key: value}}`. Variants are written to `<results_dir>/workloads/derived/`. |
+| `workloads` | List of workload names (`configs/workloads/<name>.yaml`) or entries `{name, from, set: {dotted.key: value}, run: {RunConfig overrides}}`. `from` + `set` make a variant (written to `<results_dir>/workloads/derived/`); `run` overrides run settings for that workload only (e.g. `tasks`). |
 | `seeds` | Workload seeds (ignored for `fixed_seed` workloads). Default: the workload's own seed. |
 | `grid` | `RunConfig` field → list of values; the sweep is the cross product with `workloads` and `seeds`. |
 | `exclude` | List of partial points to drop from the grid. |

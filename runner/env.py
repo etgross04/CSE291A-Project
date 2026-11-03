@@ -19,6 +19,35 @@ def sh(cmd: list[str]) -> str:
         return f"ERROR: {e}"
 
 
+def write_repo_diff(path: Path) -> bool:
+    """If the repo has uncommitted changes, write them as one patch (tracked changes vs HEAD, then every
+    untracked file as a new-file diff) so a run made from a dirty tree can still be reproduced.
+    Returns True if a patch was written."""
+    import difflib
+
+    if not sh(["git", "-C", str(REPO), "status", "--porcelain"]):
+        return False
+    r = subprocess.run(["git", "-C", str(REPO), "diff", "HEAD", "--binary"], capture_output=True, timeout=60)
+    parts = [r.stdout.decode("utf-8", errors="replace")]
+    untracked = sh(["git", "-C", str(REPO), "ls-files", "--others", "--exclude-standard"]).splitlines()
+    for rel in untracked:
+        f = REPO / rel
+        if not f.is_file() or f.stat().st_size > 1 << 20:
+            parts.append(f"# untracked, not included (binary/large): {rel}\n")
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            parts.append(f"# untracked, not included (binary): {rel}\n")
+            continue
+        parts.append(f"diff --git a/{rel} b/{rel}\nnew file mode 100644\n")
+        parts.extend(difflib.unified_diff([], text.splitlines(keepends=True), "/dev/null", f"b/{rel}"))
+        if text and not text.endswith("\n"):
+            parts.append("\n\\ No newline at end of file\n")
+    Path(path).write_text("".join(parts), encoding="utf-8", newline="\n")
+    return True
+
+
 def sha256_file(path: str | Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
