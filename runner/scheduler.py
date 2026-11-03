@@ -259,7 +259,8 @@ class Scheduler:
                 raise RuntimeError(f"policy placed {req.task_id} on busy slot {s.id}")
             self.ready.remove(req)
             s.busy, req.slot = True, s.id
-            req.cache_expected = min(s.kv_tokens, len(req.prompt_ids) - 1) if s.last_task == req.task_id else 0
+            req.cache_expected = min(s.kv_tokens, len(req.prompt_ids) - 1) \
+                if self.cache_prompt and s.last_task == req.task_id else 0
             idle, wait = self._copies_of(req.task_id, exclude=s) if self.erase_stale else ([], [])
             self._mark_erasing(idle)
             s.started = asyncio.Event()

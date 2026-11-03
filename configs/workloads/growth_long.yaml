@@ -1,0 +1,15 @@
+# E3 context growth, long start: same as growth_short but an 8,192-token initial context.
+# Prompt 8,704 -> 17,664 tokens over steps 0..7; peak 17,920 (three fit a 65,536 pool at once, not four).
+name: growth_long
+seed: 1000
+num_tasks: 24
+arrival: {type: closed, agents: 8}
+shared_prefix_tokens: 512
+task_classes:
+  - name: growth_long
+    weight: 1.0
+    steps: 8
+    init_ctx: 8192
+    out: 256
+    tool_out: 1024
+    tool_delay: 1.0

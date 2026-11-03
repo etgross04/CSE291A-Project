@@ -1,0 +1,6 @@
+name: E1
+purpose: Single-stream prefill and decode rates vs prompt length (256-16k) and output length (32-512); cost model for Phase 2.
+base: {k: 1, slot_mode: pinned, pool: 65536}
+workloads: [calib]
+reps: 3
+pilot: {reps: 1}

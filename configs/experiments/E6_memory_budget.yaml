@@ -1,0 +1,8 @@
+name: E6
+purpose: What fails first as the shared pool shrinks under fixed load. With the admission gate (baseline) large tasks are rejected (ctx_overflow) and the rest queue; without it (no reservation, K bounds admission) the server purges idle slots and then fails every in-flight request (kv_exhausted).
+base: {k: 4, slot_mode: pinned, tasks: 24}
+workloads: [trace_agentic]
+seeds: [1000]
+grid: {pool: [65536, 49152, 32768, 24576, 16384], admission_gate: [true, false]}
+reps: 3
+pilot: {grid: {pool: [65536, 24576], admission_gate: [false]}, reps: 1}

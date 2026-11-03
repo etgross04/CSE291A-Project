@@ -1,0 +1,8 @@
+name: E3
+purpose: Per-step latency and KV use as context grows over 8 steps, short vs long initial context; where the pool starts to bind (growth_long fits 3 tasks in 65,536, not 4).
+base: {slot_mode: pinned, pool: 65536}
+workloads: [growth_short, growth_long]
+seeds: [1000]
+grid: {k: [1, 4]}
+reps: 3
+pilot: {grid: {k: [4]}, reps: 1}

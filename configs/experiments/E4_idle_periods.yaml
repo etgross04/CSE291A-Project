@@ -1,0 +1,15 @@
+name: E4
+purpose: Tool-call idle time vs slot mode. pinned keeps each agent's KV through its tool call (slot held idle); any frees the slot (more tasks admitted, contexts migrate and are recomputed). Constant-delay agentic variants contain identical tasks; trace_agentic vs trace_agentic_heavy are the paired realistic delays.
+base: {k: 4, pool: 65536, tasks: 24}
+workloads:
+  - {name: agentic_d0,  from: agentic, set: {task_classes.0.tool_delay: 0.0}}
+  - {name: agentic_d1,  from: agentic, set: {task_classes.0.tool_delay: 1.0}}
+  - {name: agentic_d5,  from: agentic, set: {task_classes.0.tool_delay: 5.0}}
+  - {name: agentic_d15, from: agentic, set: {task_classes.0.tool_delay: 15.0}}
+  - {name: agentic_d30, from: agentic, set: {task_classes.0.tool_delay: 30.0}}
+  - trace_agentic
+  - trace_agentic_heavy
+seeds: [1000]
+grid: {slot_mode: [pinned, any]}
+reps: 3
+pilot: {workloads: [{name: agentic_d0, from: agentic, set: {task_classes.0.tool_delay: 0.0}}, {name: agentic_d5, from: agentic, set: {task_classes.0.tool_delay: 5.0}}], grid: {slot_mode: [pinned, any]}, reps: 1}

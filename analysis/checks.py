@@ -121,8 +121,12 @@ def check_run(run_dir: Path | str) -> list[dict]:
     short = [(r["task_id"], r["step"], r["cached_tokens"], r["cache_expected"]) for r in ok_reqs
              if r.get("cache_expected") and (r.get("cached_tokens") or 0) < r["cache_expected"]]
     purges = man.get("server_log", {}).get("purging_slot", 0)
-    add("no_silent_kv_purge", "warn", not short and purges == 0,
-        f"{len(short)} requests cached fewer tokens than expected {short[:3]}; server log purges {purges}")
+    # With erase off (E5 "keep"), the server purging finished tasks' leftover KV is the expected behaviour;
+    # only a live task losing cached tokens still counts.
+    purges_expected = cfg.get("erase") is False
+    add("no_silent_kv_purge", "warn", not short and (purges == 0 or purges_expected),
+        f"{len(short)} requests cached fewer tokens than expected {short[:3]}; server log purges {purges}"
+        + (" (erase off: purges of finished tasks' KV expected)" if purges_expected else ""))
     erase_fail = man.get("scheduler", {}).get("erase_failures", [])
     add("erase_ok", "warn", not erase_fail, f"{len(erase_fail)} erase failures {erase_fail[:2]}")
 

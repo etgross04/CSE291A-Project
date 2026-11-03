@@ -1,0 +1,15 @@
+# E3 context growth, short start: 8 steps, constant lengths, so step j's prompt is the same for every task.
+# Prompt 1,536 -> 10,496 tokens over steps 0..7; peak 10,752. Constant 1 s tool delay.
+name: growth_short
+seed: 1000
+num_tasks: 24
+arrival: {type: closed, agents: 8}
+shared_prefix_tokens: 512
+task_classes:
+  - name: growth_short
+    weight: 1.0
+    steps: 8
+    init_ctx: 1024
+    out: 256
+    tool_out: 1024
+    tool_delay: 1.0

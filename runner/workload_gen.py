@@ -13,6 +13,11 @@ Determinism rules (see tests/test_workload_gen.py):
     is pinned in configs/trace_manifest.json; the file is verified before use and its hash goes in meta.
   * A class may set `max_peak_ctx`: a task whose peak context exceeds it is redrawn from the same RNG
     stream (deterministic); the number of redraws is recorded per task.
+  * `class_order: cycle` (workload level) assigns class i mod n to task i instead of a weighted draw, for
+    exact grids such as the E1 calibration. Default (weighted) workloads are unchanged.
+  * Variants (`derive_yaml`): a base workload YAML plus dotted-key overrides, written as a YAML of its own
+    so the meta hash covers it. Constant values consume no random draws, so variants that only change a
+    constant (e.g. `task_classes.0.tool_delay`) contain the same tasks except for that field.
 
 Task semantics (what runner/agent.py must implement):
   prompt(step j) = shared_prefix + init_ctx + sum_{i<j} (response_i + tool_out_i)
@@ -151,7 +156,8 @@ def _slice_ref(rng: random.Random, length: int, n_corpus_tokens: int) -> dict:
 
 def make_task(wl: dict, seed: int, index: int, n_corpus_tokens: int) -> dict:
     rng = random.Random(seed * 1_000_003 + index)
-    cls = _weighted_choice(rng, wl["task_classes"])
+    classes = wl["task_classes"]
+    cls = classes[index % len(classes)] if wl.get("class_order") == "cycle" else _weighted_choice(rng, classes)
     cap = cls.get("max_peak_ctx")
     prefix = int(wl.get("shared_prefix_tokens", 0))
     for redraws in range(MAX_REDRAWS):
@@ -223,7 +229,42 @@ def dumps_tasks(tasks: list[dict]) -> bytes:
     return "".join(json.dumps(t, sort_keys=True, separators=(",", ":")) + "\n" for t in tasks).encode("utf-8")
 
 
-def write(yaml_path: Path, seed: int | None, out_dir: Path, n_corpus_tokens: int, corpus_tokens_sha: str) -> Path:
+def apply_overrides(wl: dict, overrides: dict) -> dict:
+    """Copy of `wl` with dotted-key overrides, e.g. {"task_classes.0.tool_delay": 5.0, "num_tasks": 24}."""
+    out = json.loads(json.dumps(wl))
+    for key, val in overrides.items():
+        node, parts = out, key.split(".")
+        for part in parts[:-1]:
+            node = node[int(part)] if isinstance(node, list) else node[part]
+        last = parts[-1]
+        if isinstance(node, list):
+            node[int(last)] = val
+        elif last not in node and last not in ("class_order", "fixed_seed"):
+            raise KeyError(f"override {key!r}: no field {last!r} in base workload")
+        else:
+            node[last] = val
+    return out
+
+
+def derive_yaml(base_yaml: Path, name: str, overrides: dict, out_dir: Path) -> Path:
+    """Write `<out_dir>/<name>.yaml` = base workload + overrides (deterministic bytes)."""
+    wl = apply_overrides(yaml.safe_load(Path(base_yaml).read_bytes()), overrides)
+    wl["name"] = name
+    head = f"# Derived from {Path(base_yaml).name} with overrides {json.dumps(overrides, sort_keys=True)}\n"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{name}.yaml"
+    body = (head + yaml.safe_dump(wl, sort_keys=False)).encode("utf-8")
+    if not path.exists() or path.read_bytes() != body:
+        path.write_bytes(body)
+    return path
+
+
+class WorkloadChanged(Exception):
+    """A workload file already exists with different tasks; earlier runs used the old file."""
+
+
+def write(yaml_path: Path, seed: int | None, out_dir: Path, n_corpus_tokens: int, corpus_tokens_sha: str,
+          refuse_change: bool = False) -> Path:
     raw_yaml = Path(yaml_path).read_bytes()
     wl = yaml.safe_load(raw_yaml)
     seed = wl["seed"] if seed is None else seed
@@ -231,6 +272,8 @@ def write(yaml_path: Path, seed: int | None, out_dir: Path, n_corpus_tokens: int
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{wl['name']}_s{seed}.jsonl"
     body = dumps_tasks(tasks)
+    if refuse_change and path.exists() and path.read_bytes() != body:
+        raise WorkloadChanged(f"{path} exists with different tasks; rename the workload or move the old file")
     path.write_bytes(body)
     meta = {
         "workload": wl["name"], "seed": seed, "num_tasks": len(tasks), "arrival": wl["arrival"],

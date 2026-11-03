@@ -158,3 +158,28 @@ Observations:
 - Found while sizing this: every mix is closed-loop with 16 agents, and at K=16 the full files are already short: tasks per slot = agentic 3.75, trace mixes 3.75, blend 5, chat 7.5, long_context/long_output 2.5, stress 2. K=16 points will be drain-heavy even uncapped. Options: more tasks per file for E2, or report throughput over the steady window (active tasks = concurrency) as well as the whole run.
 - Capped runs report p50/p95 only (p99 at n ≤ 24 is just the slowest task).
 - `blend` prefixes drift from the class weights (first 24: chat 9 / agentic 6 / long_context 7 / long_output 2; full 80: 29/26/17/8). Record class counts per run; compare blend across K, not against the full file.
+
+## 2026-11-03 — Sweep runner + E1–E6 definitions; E1 and E4 pilots VALID
+
+- `experiments/run_sweep.py CONFIG [--pilot] [--dry-run] [--only k=v] [--max-runs N] [--stop-on-error]`. Each point × rep goes to `runner.run.run_one` (fresh server, /health, discarded warm-up, workload, drain, DONE), then `analysis.checks`. Resumable: DONE runs are skipped, including identical points already run by another experiment (same run dir). INVALID runs stay and are marked. Writes `<results_dir>/sweeps/<E>[-pilot]/{plan.json, log.jsonl, status.json}`.
+- `configs/experiments/E1..E6.yaml` (format in `configs/experiments/README.md`). Planned: E1 3, E2 90, E3 12, E4 42, E5 18, E6 30 = 195 runs. Pilot points are rep0 of the full grid, so they count toward it.
+- New run options, off by default and marked in the run dir name: `cache_prompt` (`_nocache`), `erase_finished` (`_keep`), `admission_gate` (`_nogate`: -kvu with no reservation; finished slots are still erased so only the gate changes). `cache_expected` is 0 when caching is off. With erase off, server purges of finished tasks' KV no longer warn.
+- Generator: `class_order: cycle` for exact grids (E1 `calib`), variants via `derive_yaml` (base YAML + dotted overrides, written to `<results_dir>/workloads/derived/`), and `write(..., refuse_change=True)` so a sweep never overwrites a task file earlier runs used. Golden hash unchanged. New workloads `calib`, `growth_short`, `growth_long`.
+- Option A (decision): K=16 E2 points use the full files; analysis will also report throughput over the steady window (all slots busy).
+- Tests: 99 pass.
+
+E1 pilot (`calib_s7`, K=1, 42 single requests, 120 s, VALID):
+- Prefill ~6.2k tok/s for 512–4k prompts; 5.6k at 8k, 4.9k at 16k (5.6k at 256: fixed overhead).
+- Decode 7.5 ms/tok at a 256-token context, 8.2 at 4k, 9.0 at 8k, 10.6 at 16k (+40% from context alone).
+
+E4 pilot (agentic, constant delays, K=4, 24 tasks, rep0, all VALID):
+
+| delay | mode | duration | p50 / p95 task | cache hit | decode ms/tok p50 | busy slots (of 4) |
+|---|---|---|---|---|---|---|
+| 0 s | pinned | 110.0 s | 61.0 / 76.7 | 0.859 | 14.7 | 3.84 |
+| 0 s | any | 189.9 s | 103.6 / 153.1 | 0.126 | 22.5 | 3.92 |
+| 5 s | pinned | 224.9 s | 126.4 / 160.9 | 0.859 | 11.9 | 1.59 |
+| 5 s | any | 191.0 s | 102.2 / 157.7 | 0.138 | 23.2 | 3.82 |
+
+- **Crossover between 0 and 5 s.** With no tool time, pinned is 1.7× faster (`any` loses its cache to slot migration). At 5 s, `any` is 15% faster: pinned holds slots idle (1.59 of 4 busy).
+- `any` takes ~190 s at both delays: it hides the tool time completely and pays recompute instead. Pinned pays the tool time. The full E4 grid (1, 15, 30 s) locates the crossover. Phase 2 direction: release a slot during long tool calls but keep (or save/restore) its context, getting both effects.

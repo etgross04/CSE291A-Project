@@ -1,0 +1,31 @@
+# E1 calibration: exact grid of single-step requests, prompt 256..16384 x output 32/128/512, two of each.
+# class_order: cycle -> task i is class i mod 21 (no weighted draw). One agent, no shared prefix, K=1.
+name: calib
+seed: 7
+fixed_seed: true
+class_order: cycle
+num_tasks: 42
+arrival: {type: closed, agents: 1}
+shared_prefix_tokens: 0
+task_classes:
+  - {name: p256_o32, weight: 1.0, steps: 1, init_ctx: 256, out: 32, tool_out: null, tool_delay: null}
+  - {name: p256_o128, weight: 1.0, steps: 1, init_ctx: 256, out: 128, tool_out: null, tool_delay: null}
+  - {name: p256_o512, weight: 1.0, steps: 1, init_ctx: 256, out: 512, tool_out: null, tool_delay: null}
+  - {name: p512_o32, weight: 1.0, steps: 1, init_ctx: 512, out: 32, tool_out: null, tool_delay: null}
+  - {name: p512_o128, weight: 1.0, steps: 1, init_ctx: 512, out: 128, tool_out: null, tool_delay: null}
+  - {name: p512_o512, weight: 1.0, steps: 1, init_ctx: 512, out: 512, tool_out: null, tool_delay: null}
+  - {name: p1024_o32, weight: 1.0, steps: 1, init_ctx: 1024, out: 32, tool_out: null, tool_delay: null}
+  - {name: p1024_o128, weight: 1.0, steps: 1, init_ctx: 1024, out: 128, tool_out: null, tool_delay: null}
+  - {name: p1024_o512, weight: 1.0, steps: 1, init_ctx: 1024, out: 512, tool_out: null, tool_delay: null}
+  - {name: p2048_o32, weight: 1.0, steps: 1, init_ctx: 2048, out: 32, tool_out: null, tool_delay: null}
+  - {name: p2048_o128, weight: 1.0, steps: 1, init_ctx: 2048, out: 128, tool_out: null, tool_delay: null}
+  - {name: p2048_o512, weight: 1.0, steps: 1, init_ctx: 2048, out: 512, tool_out: null, tool_delay: null}
+  - {name: p4096_o32, weight: 1.0, steps: 1, init_ctx: 4096, out: 32, tool_out: null, tool_delay: null}
+  - {name: p4096_o128, weight: 1.0, steps: 1, init_ctx: 4096, out: 128, tool_out: null, tool_delay: null}
+  - {name: p4096_o512, weight: 1.0, steps: 1, init_ctx: 4096, out: 512, tool_out: null, tool_delay: null}
+  - {name: p8192_o32, weight: 1.0, steps: 1, init_ctx: 8192, out: 32, tool_out: null, tool_delay: null}
+  - {name: p8192_o128, weight: 1.0, steps: 1, init_ctx: 8192, out: 128, tool_out: null, tool_delay: null}
+  - {name: p8192_o512, weight: 1.0, steps: 1, init_ctx: 8192, out: 512, tool_out: null, tool_delay: null}
+  - {name: p16384_o32, weight: 1.0, steps: 1, init_ctx: 16384, out: 32, tool_out: null, tool_delay: null}
+  - {name: p16384_o128, weight: 1.0, steps: 1, init_ctx: 16384, out: 128, tool_out: null, tool_delay: null}
+  - {name: p16384_o512, weight: 1.0, steps: 1, init_ctx: 16384, out: 512, tool_out: null, tool_delay: null}

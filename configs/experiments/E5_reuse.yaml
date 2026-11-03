@@ -1,0 +1,11 @@
+name: E5
+purpose: Does retained or shared context matter on this runtime? Shared prefix 0 vs 4096 tokens x cache_prompt on/off x finished slots erased (baseline) vs kept (next task on the slot can reuse the shared prefix; the server purges leftovers when it needs room). "keep" is also the simple fixed cache policy a cache-aware Phase 2 design must beat.
+base: {k: 4, slot_mode: pinned, pool: 65536, tasks: 24}
+workloads:
+  - {name: agentic_p0,    from: agentic, set: {shared_prefix_tokens: 0}}
+  - {name: agentic_p4096, from: agentic, set: {shared_prefix_tokens: 4096}}
+seeds: [1000]
+grid: {cache_prompt: [true, false], erase_finished: [true, false]}
+exclude: [{cache_prompt: false, erase_finished: false}]
+reps: 3
+pilot: {workloads: [{name: agentic_p4096, from: agentic, set: {shared_prefix_tokens: 4096}}], grid: {cache_prompt: [true], erase_finished: [true, false]}, reps: 1}

@@ -5,7 +5,7 @@ else
 PY ?= .venv/bin/python
 endif
 
-.PHONY: env probe probe-kvu vram corpus traces workloads test check
+.PHONY: env probe probe-kvu vram corpus traces workloads test check e1 e2 e3 e4 e5 e6 pilots plan
 
 env:      ## environment snapshot (incl. model sha256)
 	$(PY) scripts/check_env.py --hash-model
@@ -36,3 +36,25 @@ test:
 
 check:    ## validity checks for run dirs: make check RUNS="C:/llm/results/runs/..."
 	$(PY) -m analysis.checks $(RUNS)
+
+# Sweeps (experiments/run_sweep.py): resumable; rerun the same target to continue. ARGS="--only k=4 --max-runs 3"
+SWEEP = $(PY) -m experiments.run_sweep
+E1 = configs/experiments/E1_calibration.yaml
+E2 = configs/experiments/E2_concurrency.yaml
+E3 = configs/experiments/E3_context_growth.yaml
+E4 = configs/experiments/E4_idle_periods.yaml
+E5 = configs/experiments/E5_reuse.yaml
+E6 = configs/experiments/E6_memory_budget.yaml
+
+e1: ; $(SWEEP) $(E1) $(ARGS)
+e2: ; $(SWEEP) $(E2) $(ARGS)
+e3: ; $(SWEEP) $(E3) $(ARGS)
+e4: ; $(SWEEP) $(E4) $(ARGS)
+e5: ; $(SWEEP) $(E5) $(ARGS)
+e6: ; $(SWEEP) $(E6) $(ARGS)
+
+pilots:   ## the 2-3 point pilot of every experiment
+	for e in $(E1) $(E2) $(E3) $(E4) $(E5) $(E6); do $(SWEEP) $$e --pilot || exit 1; done
+
+plan:     ## dry run: what every experiment would run and what is already DONE
+	for e in $(E1) $(E2) $(E3) $(E4) $(E5) $(E6); do $(SWEEP) $$e --dry-run | head -1; done

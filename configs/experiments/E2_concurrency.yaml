@@ -1,0 +1,9 @@
+name: E2
+purpose: Throughput and tail latency vs fixed concurrency K for each mix; saturation point; best fixed K per dev workload (the tuned Phase 2 baseline).
+base: {slot_mode: pinned, pool: 65536}
+workloads: [chat, long_context, long_output, agentic, blend, trace_agentic]
+seeds: [1000]
+grid: {k: [1, 2, 4, 8, 16]}
+task_cap: {per_k: 6, min: 20}
+reps: 3
+pilot: {workloads: [agentic, trace_agentic], grid: {k: [1, 16]}, reps: 1}

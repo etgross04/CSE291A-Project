@@ -55,6 +55,10 @@ class RunConfig:
     rep: int = 0
     tag: str = ""
     server_overrides: dict = field(default_factory=dict)
+    # Experiment variants (E5, E6). Defaults = the baseline; non-defaults are marked in the run dir name.
+    cache_prompt: bool = True        # False: every request recomputes its whole prompt
+    erase_finished: bool | None = None  # None: erase finished/stale copies iff -kvu (shared pool)
+    admission_gate: bool = True      # False (-kvu only): no pool reservation; admission bounded by K only
 
     @property
     def ctx_size(self) -> int:
@@ -62,7 +66,11 @@ class RunConfig:
 
     @property
     def kv_budget(self) -> int | None:
-        return self.ctx_size if self.kv_unified else None
+        return self.ctx_size if self.kv_unified and self.admission_gate else None
+
+    @property
+    def erase(self) -> bool:
+        return self.kv_unified if self.erase_finished is None else self.erase_finished
 
     def default_dir(self, results_dir: Path) -> Path:
         kv = "kvu" if self.kv_unified else "split"
@@ -71,6 +79,12 @@ class RunConfig:
             name += f"_a{self.agents}"
         if self.tasks:
             name += f"_n{self.tasks}"
+        if not self.cache_prompt:
+            name += "_nocache"
+        if not self.admission_gate:
+            name += "_nogate"
+        if self.erase_finished is not None and self.erase_finished != self.kv_unified:
+            name += "_erase" if self.erase_finished else "_keep"
         if self.tag:
             name += f"_{self.tag}"
         return Path(results_dir) / "runs" / self.workload / name / f"rep{self.rep}"
@@ -114,7 +128,8 @@ async def warmup(client, k: int, corpus, log, erase: bool) -> None:
 async def execute(cfg: RunConfig, client, tasks: list[dict], meta: dict, corpus, prefix_ids: list[int],
                   req_log, task_log, sampler_factory=None) -> dict:
     """The measured part of a run. Works with any client (tests use a fake)."""
-    sched = Scheduler(client, cfg.k, POLICIES[cfg.policy](cfg), kv_budget=cfg.kv_budget)
+    sched = Scheduler(client, cfg.k, POLICIES[cfg.policy](cfg), kv_budget=cfg.kv_budget,
+                      cache_prompt=cfg.cache_prompt, erase_stale=cfg.erase)
     sampler = sampler_factory(sched) if sampler_factory else None
     if sampler:
         await sampler.start()
@@ -165,7 +180,8 @@ def run_one(cfg: RunConfig, run_dir: Path | None = None, local: dict | None = No
                                **cfg.server_overrides})
     manifest = {
         "status": "running",
-        "config": dataclasses.asdict(cfg) | {"ctx_size": cfg.ctx_size, "kv_budget": cfg.kv_budget},
+        "config": dataclasses.asdict(cfg) | {"ctx_size": cfg.ctx_size, "kv_budget": cfg.kv_budget,
+                                             "erase": cfg.erase},
         "workload": {"name": cfg.workload, "file": str(wl_path), "file_sha256": _sha256(wl_path),
                      "meta": meta, "planned_task_ids": [t["task_id"] for t in tasks]},
         "corpus_tokens_sha256": corpus.meta.get("tokens_sha256"),
@@ -237,11 +253,15 @@ def main() -> None:
     ap.add_argument("--rep", type=int, default=0)
     ap.add_argument("--tag", default="")
     ap.add_argument("--no-warmup", action="store_true")
+    ap.add_argument("--no-cache-prompt", action="store_true", help="E5: send cache_prompt=false")
+    ap.add_argument("--keep-finished", action="store_true", help="E5: do not erase finished tasks' slots")
+    ap.add_argument("--no-gate", action="store_true", help="E6: no pool reservation at admission (-kvu only)")
     ap.add_argument("--out", help="run directory (default <results_dir>/runs/<workload>/<config>/rep<N>)")
     a = ap.parse_args()
     cfg = RunConfig(workload=a.workload, k=a.k, slot_mode=a.mode, policy=a.policy, pool=a.pool,
                     kv_unified=not a.static_split, agents=a.agents, tasks=a.tasks, deadline_s=a.deadline,
-                    rep=a.rep, tag=a.tag, warmup=not a.no_warmup)
+                    rep=a.rep, tag=a.tag, warmup=not a.no_warmup, cache_prompt=not a.no_cache_prompt,
+                    erase_finished=False if a.keep_finished else None, admission_gate=not a.no_gate)
     run_dir = run_one(cfg, Path(a.out) if a.out else None)
     from analysis.checks import check_run, print_report
     print_report(check_run(run_dir))
