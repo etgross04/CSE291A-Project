@@ -130,3 +130,31 @@ Six Gutenberg books: Pride and Prejudice, Moby Dick, A Tale of Two Cities, Frank
 - Tests: 69 pass. The fake client now models slot contents (cached tokens = longest common prefix, like the server).
 - **Live end-to-end (6 pilot tasks, K=2, -c 32768, pinned, tag `smoke`): VALID, every check ok.** 106.5 s, 534 samples (max gap 0.23 s), 0 scrape errors. Pre-launch VRAM 2,045 MiB, after load 11,461 MiB, peak 11,840 MiB. Cache hit 0.86, 0 purges. Model sha256 `d98cdcbd…` matches.
 - Note: the manifest recorded `repo_dirty: true`. Commit before measured runs so every result maps to a commit.
+
+## 2026-11-03 — Pilots at pool 65,536 (K=4, FIFO, -kvu): all VALID
+
+Pool fixed at **65,536 tokens** for the main experiments. Runs in `C:\llm\results\runs\{pilot_s42,trace_agentic_s1000}\fifo-*_K4_c65536_kvu*\rep0`, repo commit 5943f33, every check ok (0 purges, 0 erase failures, max sampler gap 0.24 s, `requests_deferred` 0).
+
+| run | tasks | duration | p50 / p95 task | queue share | gen tok/s | cache hit (steps>0) | prompt tok computed | decode ms/tok p50 | KV reserved mean / max | tracked KV mean |
+|---|---|---|---|---|---|---|---|---|---|---|
+| pilot pinned | 30/30 | 240.6 s | 54.5 / 78.2 s | 46% | 139.9 | 0.858 | 159k | 13.5 | 25.5k / 36.8k | 15.7k |
+| pilot any | 30/30 | 306.3 s | 75.1 / 107.3 s | 31% | 109.9 | 0.155 | 634k | 26.7 | 49.1k / 63.2k | 17.4k |
+| trace pinned (15 tasks) | 15/15 | 221.8 s | 142.1 / 220.4 s | 62% | 64.3 | 0.915 | 211k | 19.3 | 54.9k / 62.7k | 38.8k |
+| trace any (15 tasks) | 15/15 | 237.4 s | 159.0 / 237.3 s | 62% | 60.1 | 0.884 | 245k | 17.5 | 55.2k / 62.7k | 38.5k |
+
+Observations:
+- **Pilot, pinned is slot-bound, not memory-bound.** One task per slot, so tasks wait for admission (3.25 waiting on average) while slots are busy only 2.2 of 4 on average; the rest are held idle through tool delays. Reserved KV never passed 37k of 65k.
+- **Pilot, `any` is 27% slower despite busier slots (3.74 of 4)** because contexts migrate between slots: 7.3 active tasks share 4 slots, the cache hit falls 0.86 → 0.16 and prompt recompute rises 4× (159k → 634k tokens). Those long prefills batch with other slots' decode and double per-token decode time (requests overlapping another's prefill: 14.1 ms/tok pinned vs 27.0 ms/tok any; without overlap ~11–12 in both). Recompute cost shows up in everybody's decode, not only in the recomputing request. Main E4 question.
+- **Trace mix is pool-bound.** Reservation averages 55k of 65k and up to 5.6 tasks wait for admission; queueing is 62% of task time. Pinned ≈ any here (pool admits ~K tasks, so contexts rarely migrate).
+- **Reserve-at-peak wastes ~30% of the pool**: tracked KV averages 38.8k while 54.9k is reserved (pilot pinned: 15.7k vs 25.5k). Candidate Phase 2 lever (reserve by estimated current need, grow on demand), to be weighed against the `kv_exhausted` risk.
+- Decode p95 is 300–430 ms/tok on the trace mix: Mooncake outputs are often a few tokens, so one stall behind another slot's 10k-token prefill dominates the per-token time. Report decode per token only for outputs ≥ 32 tokens, or report TTFT separately.
+- **VRAM headroom is thin at 64k**: peak 16,061 of 16,303 MiB (any pilot). The server grew ~100–370 MiB after load during the run; pre-launch desktop VRAM varied 1,430–2,332 MiB between runs. Close other GPU apps before measured runs; record a run as failed (not retried silently) if the server fails to allocate.
+- Policy overhead is negligible (3.4–6.6 ms per run); erase total 0.05–0.74 s per run.
+
+## 2026-11-03 — Decision: cap tasks per run in E2 (scaled with K), keep 3 reps
+
+- E2 runs the first `n` tasks of each workload file: `n = min(num_tasks, max(20, 6·K))`. K=1, 2 → 20; K=4 → 24; K=8 → 48; K=16 → all tasks. The capped tasks are an exact prefix of the same deterministic file, so every config sees identical work. The cap is set per point in the experiment YAML and recorded in the run dir name (`_n<N>`) and manifest.
+- Why scale with K: only ~K tasks run at once (fewer if the pool binds), so the run needs several tasks per slot to reach steady state before the drain. A flat cap would make high-K runs mostly ramp-up and drain.
+- Found while sizing this: every mix is closed-loop with 16 agents, and at K=16 the full files are already short: tasks per slot = agentic 3.75, trace mixes 3.75, blend 5, chat 7.5, long_context/long_output 2.5, stress 2. K=16 points will be drain-heavy even uncapped. Options: more tasks per file for E2, or report throughput over the steady window (active tasks = concurrency) as well as the whole run.
+- Capped runs report p50/p95 only (p99 at n ≤ 24 is just the slowest task).
+- `blend` prefixes drift from the class weights (first 24: chat 9 / agentic 6 / long_context 7 / long_output 2; full 80: 29/26/17/8). Record class counts per run; compare blend across K, not against the full file.
