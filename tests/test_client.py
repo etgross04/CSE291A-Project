@@ -102,3 +102,38 @@ def test_timeout():
 
     r = run(lambda req: httpx.Response(200, content=slow_stream()), timeout=0.3)
     assert r.status == "timeout" and r.end_t - r.dispatch_t < 2
+
+
+def test_pool_exhausted_500_is_kv_exhausted():
+    # exact body from scripts/probe_kvu.py (unified pool full, every slot busy)
+    body = {"error": {"code": 500, "message": "Context size has been exceeded.", "type": "server_error"}}
+    r = run(lambda req: httpx.Response(500, json=body))
+    assert r.status == "kv_exhausted" and r.http_status == 500
+
+
+def test_pool_exhausted_in_stream_is_kv_exhausted():
+    body = sse([{"error": {"code": 500, "message": "Context size has been exceeded.", "type": "server_error"}}])
+    assert run(lambda req: httpx.Response(200, content=body)).status == "kv_exhausted"
+
+
+def test_erase_slot_posts_action_and_raises_on_501():
+    seen = []
+
+    def h(req):
+        seen.append(str(req.url))
+        if "/slots/2" in str(req.url):
+            return httpx.Response(501, json={"error": {"code": 501, "message": "Start it with `--slot-save-path`"}})
+        return httpx.Response(200, json={"id_slot": 1, "n_erased": 10})
+
+    async def go():
+        c = LlamaClient("http://fake")
+        c._http = httpx.AsyncClient(base_url="http://fake", transport=httpx.MockTransport(h))
+        await c.erase_slot(1)
+        try:
+            await c.erase_slot(2)
+        except RuntimeError as e:
+            return str(e)
+        finally:
+            await c.aclose()
+    err = asyncio.run(go())
+    assert seen[0].endswith("/slots/1?action=erase") and "501" in err

@@ -1,0 +1,22 @@
+# Trace-calibrated agents (see docs/notebook.md 2026-11-02 "Trace-calibrated mix" for every source number).
+#   init_ctx, out : sampled from the Mooncake FAST'25 tool & agent trace (configs/trace_manifest.json).
+#                   Mooncake has no session ids, so only per-request lengths are taken from it.
+#   steps         : 5-12, spanning Continuum's BFCL (6.3 +/- 2.3 turns) and SWE-bench (10.9 +/- 2.1) traces.
+#   tool_out      : tokens appended per step; TraceLab median append ~857 tokens (incl. the response).
+#   tool_delay    : lognormal fitted to Continuum's mini-swe-agent SWE-bench tool time
+#                   (mean 0.925 s, sd 3.55 s -> median 0.233 s, sigma 1.66), clipped at 60 s.
+#   max_peak_ctx  : 32768 (Qwen3 native context); longer tasks are redrawn and counted in meta.
+name: trace_agentic
+seed: 1000
+num_tasks: 60
+arrival: {type: closed, agents: 16}
+shared_prefix_tokens: 512
+task_classes:
+  - name: trace_agent
+    weight: 1.0
+    steps: {dist: uniform_int, low: 5, high: 12}
+    init_ctx: {dist: empirical, trace: mooncake_toolagent, column: input_length, min: 256, max: 16384}
+    out: {dist: empirical, trace: mooncake_toolagent, column: output_length, min: 1, max: 2048}
+    tool_out: {dist: lognormal_int, median: 800, sigma: 1.0, min: 16, max: 8192}
+    tool_delay: {dist: lognormal, median_s: 0.233, sigma: 1.66, max_s: 60.0}
+    max_peak_ctx: 32768

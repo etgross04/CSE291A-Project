@@ -57,7 +57,11 @@ def build_cmd(local: dict, cfg: dict) -> list[str]:
     if not cfg.get("webui", False):
         cmd.append("--no-webui")
     if cfg.get("slot_save_path"):
-        cmd += ["--slot-save-path", str(cfg["slot_save_path"])]
+        ssp = cfg["slot_save_path"]
+        if ssp == "auto":
+            ssp = Path(local["results_dir"]) / "slot_saves"
+            ssp.mkdir(parents=True, exist_ok=True)
+        cmd += ["--slot-save-path", str(ssp)]
     for extra in cfg.get("extra_args", []) or []:
         cmd.append(str(extra))
     return cmd

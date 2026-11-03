@@ -9,6 +9,10 @@ Determinism rules (see tests/test_workload_gen.py):
     versions and OSes). Distributions are implemented here from uniform floats.
   * Task i uses its own RNG seeded from (seed, i): adding tasks never changes earlier ones.
   * Floats are rounded to ms; JSON is written with sorted keys, fixed separators and "\n" line endings.
+  * Trace-calibrated distributions (`dist: empirical`) sample a column of a public trace file whose sha256
+    is pinned in configs/trace_manifest.json; the file is verified before use and its hash goes in meta.
+  * A class may set `max_peak_ctx`: a task whose peak context exceeds it is redrawn from the same RNG
+    stream (deterministic); the number of redraws is recorded per task.
 
 Task semantics (what runner/agent.py must implement):
   prompt(step j) = shared_prefix + init_ctx + sum_{i<j} (response_i + tool_out_i)
@@ -37,6 +41,53 @@ REPO = Path(__file__).resolve().parents[1]
 MAX_MODEL_CTX = 40960  # Qwen3-8B n_ctx_train
 # Exponential/lognormal draws use a separate stream for arrivals so class mixes don't shift arrival times.
 ARRIVAL_STREAM = 0x5EED
+TRACE_MANIFEST = REPO / "configs" / "trace_manifest.json"
+MAX_REDRAWS = 1000
+
+
+# ---------- trace files (configs/trace_manifest.json; fetched by scripts/fetch_traces.py) ----------
+
+_TRACE_CACHE: dict[str, dict[str, list[int]]] = {}
+_EMP_CACHE: dict[tuple, list[int]] = {}
+
+
+def _manifest() -> dict:
+    return json.loads(TRACE_MANIFEST.read_text(encoding="utf-8"))["traces"]
+
+
+def load_trace(name: str, traces_dir: Path | None = None) -> dict[str, list[int]]:
+    """Columns of a pinned trace file, in file order. Verifies the sha256 from the manifest."""
+    if name in _TRACE_CACHE:
+        return _TRACE_CACHE[name]
+    entry = _manifest()[name]
+    if traces_dir is None:
+        from runner.server import load_local
+        traces_dir = Path(load_local()["traces_dir"])
+    path = Path(traces_dir) / entry["path"]
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != entry["sha256"]:
+        raise ValueError(f"{path}: sha256 differs from configs/trace_manifest.json; run scripts/fetch_traces.py")
+    rows = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+    _TRACE_CACHE[name] = {c: [int(r[c]) for r in rows] for c in entry["columns"]}
+    return _TRACE_CACHE[name]
+
+
+def _empirical_values(spec: dict) -> list[int]:
+    key = (spec["trace"], spec["column"], spec.get("min"), spec.get("max"))
+    if key not in _EMP_CACHE:
+        lo, hi = spec.get("min", -math.inf), spec.get("max", math.inf)
+        vals = [v for v in load_trace(spec["trace"])[spec["column"]] if lo <= v <= hi]
+        if not vals:
+            raise ValueError(f"empirical {key}: no trace values in range")
+        _EMP_CACHE[key] = vals
+    return _EMP_CACHE[key]
+
+
+def trace_hashes(wl: dict) -> dict[str, str]:
+    """sha256 of every trace file a workload samples from (recorded in .meta.json)."""
+    names = sorted({spec["trace"] for c in wl["task_classes"] for spec in c.values()
+                    if isinstance(spec, dict) and spec.get("dist") == "empirical"})
+    return {n: _manifest()[n]["sha256"] for n in names} if names else {}
 
 
 # ---------- distributions (from uniform floats only) ----------
@@ -52,7 +103,8 @@ def _normal(rng: random.Random) -> float:
 
 
 def sample(spec, rng: random.Random):
-    """spec: a number (constant), null, or {dist: uniform_int|choice|lognormal|exponential|const, ...}."""
+    """spec: a number (constant), null, or
+    {dist: const|uniform_int|choice|lognormal|lognormal_int|exponential|empirical, ...}."""
     if spec is None or isinstance(spec, (int, float)):
         return spec
     d = spec["dist"]
@@ -66,8 +118,14 @@ def sample(spec, rng: random.Random):
     if d == "lognormal":  # parameterized by median and sigma (of the underlying normal), optional clip
         x = spec["median_s"] * math.exp(spec["sigma"] * _normal(rng))
         return min(max(x, spec.get("min_s", 0.0)), spec.get("max_s", math.inf))
+    if d == "lognormal_int":  # token counts: median, sigma, clipped to [min, max]
+        x = spec["median"] * math.exp(spec["sigma"] * _normal(rng))
+        return int(min(max(round(x), spec.get("min", 1)), spec.get("max", 10**9)))
     if d == "exponential":
         return -math.log(1.0 - rng.random()) * spec["mean_s"]
+    if d == "empirical":  # uniform draw from a trace column (file order), restricted to [min, max]
+        vals = _empirical_values(spec)
+        return vals[_uniform_int(rng, 0, len(vals) - 1)]
     raise ValueError(f"unknown dist {d!r}")
 
 
@@ -94,6 +152,21 @@ def _slice_ref(rng: random.Random, length: int, n_corpus_tokens: int) -> dict:
 def make_task(wl: dict, seed: int, index: int, n_corpus_tokens: int) -> dict:
     rng = random.Random(seed * 1_000_003 + index)
     cls = _weighted_choice(rng, wl["task_classes"])
+    cap = cls.get("max_peak_ctx")
+    prefix = int(wl.get("shared_prefix_tokens", 0))
+    for redraws in range(MAX_REDRAWS):
+        task = _draw_task(cls, rng, prefix, n_corpus_tokens)
+        if cap is None or task["peak_ctx_tokens"] <= cap:
+            break
+    else:
+        raise ValueError(f"{wl['name']} task {index}: no draw with peak <= {cap} in {MAX_REDRAWS} tries")
+    task = {"task_id": f"{wl['name']}-s{seed}-{index:04d}", "index": index, "class": cls["name"], **task}
+    if cap is not None:
+        task["redraws"] = redraws
+    return task
+
+
+def _draw_task(cls: dict, rng: random.Random, prefix: int, n_corpus_tokens: int) -> dict:
     n_steps = int(sample(cls["steps"], rng))
     init_len = int(sample(cls["init_ctx"], rng))
     steps = []
@@ -107,16 +180,12 @@ def make_task(wl: dict, seed: int, index: int, n_corpus_tokens: int) -> dict:
             delay = round(float(sample(cls.get("tool_delay"), rng) or 0.0), 3)
         steps.append({"step": j, "out": out, "tool_out": tool_out, "tool_delay_s": delay})
 
-    prefix = int(wl.get("shared_prefix_tokens", 0))
     prompt_lens, ctx = [], prefix + init_len
     for s in steps:
         prompt_lens.append(ctx)
         ctx += s["out"] + (s["tool_out"]["len"] if s["tool_out"] else 0)
     peak = prompt_lens[-1] + steps[-1]["out"]  # KV held at end of the final generation
     return {
-        "task_id": f"{wl['name']}-s{seed}-{index:04d}",
-        "index": index,
-        "class": cls["name"],
         "arrival_s": None,  # filled in for open-loop workloads
         "init_ctx": _slice_ref(rng, init_len, n_corpus_tokens),
         "steps": steps,
@@ -169,6 +238,7 @@ def write(yaml_path: Path, seed: int | None, out_dir: Path, n_corpus_tokens: int
         "yaml_path": str(Path(yaml_path).as_posix()), "yaml_sha256": hashlib.sha256(raw_yaml).hexdigest(),
         "tasks_sha256": hashlib.sha256(body).hexdigest(), "generator_version": GENERATOR_VERSION,
         "corpus_n_tokens": n_corpus_tokens, "corpus_tokens_sha256": corpus_tokens_sha,
+        **({"trace_sha256": th} if (th := trace_hashes(wl)) else {}),
         "summary": summarize(tasks),
     }
     (out_dir / f"{wl['name']}_s{seed}.meta.json").write_bytes(
@@ -188,6 +258,7 @@ def summarize(tasks: list[dict]) -> dict:
         "peak_ctx_max": peaks[-1],
         "peak_ctx_p50": peaks[len(peaks) // 2],
         "tool_delay_s_total": round(sum(t["total_tool_delay_s"] for t in tasks), 3),
+        **({"redraws_total": sum(t["redraws"] for t in tasks)} if any("redraws" in t for t in tasks) else {}),
     }
 
 

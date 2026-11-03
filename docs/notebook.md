@@ -76,3 +76,57 @@ Six Gutenberg books: Pride and Prejudice, Moby Dick, A Tale of Two Cities, Frank
 
   Both modes: 6/6 tasks ok, every output had the requested length, every prompt matched the expected length, max in-flight 2, policy overhead ~1 ms total.
 - **First look at the E4 tradeoff:** `any` recomputed 4.2× more prompt tokens but finished ~21% sooner. Pinned slots sit idle during tool delays (median 2 s, up to 14 s) while other tasks wait to be admitted. At ~5.5k tok/s prefill, the extra ~98k recomputed tokens cost ~18 s of GPU time, which is less than the idle reservation time. Expect this to flip as contexts grow (recompute cost ∝ context) or tool delays shrink. This is exactly what E4 has to map out. Possible Phase 2 direction: release or reassign a slot during long tool calls and keep it for short ones.
+
+## 2026-11-02 — Baseline memory model changed to one shared KV pool (TA decision, "option B")
+
+- TA recommendation: one shared pool that a task draws from when it starts, instead of the static c/K split. `configs/server_baseline.yaml` now has `kv_unified: true` (`-kvu`) and `slot_save_path: auto` (needed for erase). Probes that documented static-split behaviour are pinned to `kv_unified: false` so they still reproduce.
+- **Unified-KV probe (`scripts/probe_kvu.py`, results/probes/kvu_20261102-161716), -c 16384 -np 4:**
+  - Every slot gets `n_ctx = 16384`, the whole pool (log: `n_ctx_slot = 16384, kv_unified = 'true'`).
+  - Idle slots keep their KV. When a request needs cells that are not free, the server **silently purges an idle slot** (`try_clear_id: purging slot 0 with 6031 tokens`) and the request succeeds. A pinned agent in a tool call can lose its context with no error; it only shows up later as recompute.
+  - When every slot is busy and the pool overflows (3 × (5000 + 1024) > 16384), **all three in-flight requests fail** with HTTP 500 `"Context size has been exceeded."` after ~9 s of retries with smaller batches. The server stays healthy. The client now classifies this as a new status, `kv_exhausted`.
+  - `POST /slots/{id}?action=erase` returns 501 unless `--slot-save-path` is set.
+  - A new prompt on the same slot reuses that slot's cells (no leak).
+- **Scheduler changes (`runner/scheduler.py`):** `kv_budget` = pool tokens. At admission a task reserves `policy.reserve_tokens(task)`, which is its declared `peak_ctx_tokens` in the baseline. FIFO admission waits until the head fits (head-of-line blocking). A task larger than the pool is rejected → `ctx_overflow`. Invariant: each task's context is in at most one slot, and a finished task's KV is erased before its reservation is released, so KV in use ≤ Σ reservations ≤ pool and the server never needs to purge. `any` mode now places a request on the free slot that already holds its context, else the lowest free slot (affinity, like the server's own `-sps` choice). Requests log `cache_expected` so analysis can detect any purge.
+  - Bug caught by the new fake-pool tests before going live: in `any` mode a task's old copy could sit on a slot already handed to another request that had not started yet, so for a moment the task's context existed twice. Fixed by waiting for that slot's next request to start.
+  - Policy interface: `select_request(slot, eligible)` was replaced by `order_ready(ready)` + `place_request(req, free)`, and `reserve_tokens(task)` was added.
+- **Live smoke with the pool (6 pilot tasks, K=2, -c 32768, one run, not a result):** pinned 118.1 s, any 95.7 s. 0 server purges, 0 "failed to find free space" warnings, 0 requests with fewer cached tokens than expected, 0 failures. Erase takes 5–16 ms. The `any` cache-hit fraction rose from 0.24 to 0.31 with affinity.
+- **Surprise: idle KV in the unified pool slows every other request (`scripts/probe_kvu_speed.py`, results/probes/kvu_speed_20261102-163802).** One request on slot 0 (2000-token prompt, 256 out), with slots 1–3 empty vs holding 21k idle tokens:
+
+  | mode | idle tokens in other slots | prefill ms/tok | decode ms/tok |
+  |---|---|---|---|
+  | static split | 0 | 0.204 | 9.81 |
+  | static split | 21,000 | 0.207 | 9.88 |
+  | unified | 0 | 0.211 | 9.89 |
+  | unified | 21,000 | **0.387** | **14.87** |
+
+  In the shared pool, decode is ~50% and prefill ~85% slower when other contexts are present. This is consistent with attention scanning the used range of the shared buffer (masked), but that mechanism is not verified. It explains most of the ~16–19% slowdown of the pool smoke vs the earlier static-split smoke. Implications: (1) retaining an idle agent's context in the pool costs **compute for everyone**, not just memory, which strengthens the case for a release/retain policy in Phase 2; (2) E2/E4 should log per-request `predicted_per_token_ms` against total tokens in the pool; (3) worth a dose-response sweep (idle tokens 0→48k), and telling the TA, because it makes the unified baseline slower than the static split at equal load.
+
+## 2026-11-02 — Trace-calibrated agentic mixes
+
+- Public traces give token counts and timing only (no text), so they calibrate distributions; content still comes from the Gutenberg corpus.
+- **Mooncake FAST'25 tool & agent trace** (kvcache-ai/Mooncake @ 3cca71d, Apache-2.0; 23,608 requests; input p50 6,346 / mean 8,596 / p90 16,805; output p50 30 / mean 182 / p90 507). Pinned in `configs/trace_manifest.json` (sha256 `48a2db1a…fa5f71`), fetched by `scripts/fetch_traces.py` into `C:\llm\traces`. The generator verifies the hash and records it in each workload's meta.
+  - Tried to rebuild sessions from `hash_ids` prefix chains: 46% of requests share the same first block (a template), the "next step" gap has a median of 114 s (not tool calls), and parents branch heavily. Mooncake is request-level, so only per-request lengths are used.
+- New generator features: `dist: empirical` (uniform draw from a trace column, optional [min, max]), `dist: lognormal_int`, and per-class `max_peak_ctx` (deterministic redraw, count recorded). Old workloads are byte-identical (golden hash unchanged).
+- `trace_agentic` / `trace_agentic_heavy` (60 tasks per seed): init ctx ~ Mooncake input (256–16,384), out ~ Mooncake output (1–2,048), steps uniform 5–12 (Continuum: BFCL 6.3 ± 2.3, SWE-bench 10.9 ± 2.1 turns), tool_out lognormal median 800 (TraceLab median append ~857), peak ≤ 32,768.
+  - Tool delays: `trace_agentic` fits Continuum mini-swe-agent SWE-bench tool time (mean 0.925 s, sd 3.55 s → lognormal median 0.233 s, σ 1.66, clip 60 s); the s1000 draws give mean 0.86 s, sd 2.6 s, 83% < 1 s. `trace_agentic_heavy` fits TraceLab Claude Code (median 0.3 s, p90 13.6 s → σ 2.98, clip 120 s); the draws give median 0.37 s, p90 11.2 s, 3.2% > 60 s, and those long calls hold 56% of tool time (TraceLab: 4.9% and 85–92%; clipping trims the tail).
+  - The two mixes use the same RNG stream, so they contain **identical tasks except for the tool delays**: a paired comparison for E4.
+  - s1000: peak ctx p50 15.7k, max 27.7k, 466 requests, 0 redraws. A 32k pool holds ~2 median tasks; a 64k pool ~4. These mixes are memory-bound by construction.
+  - Limitation: the shared prefix is 512 tokens for every task. Mooncake suggests ~46% of requests share a first block; prefix-sharing structure is not modelled yet.
+
+## 2026-11-02 — Runner finished: samplers, run.py, validity checks
+
+- `runner/samplers.py`: a `system.jsonl` record every 200 ms with whole-GPU VRAM and utilisation (NVML), llama-server RSS (psutil), all `llamacpp:*` values from `/metrics`, `is_processing` per slot from `/slots`, and the scheduler snapshot (pool reserved, tracked KV per slot, owners, queue lengths). A scrape takes ~3 ms median, 11 ms max.
+- `runner/run.py`: fresh server → warm-up (one short request per slot, then erase every slot so the run starts cold) → workload → drain → logs + manifest.
+  - Logs are written line by line, so a crash keeps partial data.
+  - The manifest holds: config, workload file sha256 + meta (incl. trace sha256), planned task ids, corpus hash, full server config + command line, environment (repo commit + dirty flag, llama version, model sha256 cached in `<results_dir>/model_sha256.json`, GPU/driver, pip freeze), pre-launch and post-load VRAM, monotonic window `t0/t1`, scheduler stats, sampler stats, and purge/KV-full counts from the server log.
+  - Resumable: a run dir with `DONE` is skipped; one without it is renamed `*.incomplete-<ts>` and kept.
+  - `execute()` takes any client, so the whole measured path is tested with the fake client.
+  - Run dirs: `<results_dir>/runs/<workload>/<policy>-<mode>_K<k>_c<pool>_<kvu|split>[_a][_n][_tag]/rep<N>`.
+- `runner/env.py` now holds the environment collection that `scripts/check_env.py` used to do itself (renamed field: `gpu_mem_used_mib`).
+- `analysis/checks.py` (`python -m analysis.checks RUN_DIR...`, exit 1 if invalid).
+  - **fail** checks: run complete; server alive; task accounting (planned = logged, none missing/extra/duplicated); exact output lengths; prompt lengths; ok tasks ran every step; every failure explained; in-flight ≤ K; one request per slot at a time; server never deferred (`requests_deferred` = 0); pool reservation ≤ budget.
+  - **warn** checks: no silent KV purge (cached < expected, or `purging slot` in the log); erase failures; sampler gaps > 1 s.
+  - **info**: failures by type, cache-hit fraction.
+- Tests: 69 pass. The fake client now models slot contents (cached tokens = longest common prefix, like the server).
+- **Live end-to-end (6 pilot tasks, K=2, -c 32768, pinned, tag `smoke`): VALID, every check ok.** 106.5 s, 534 samples (max gap 0.23 s), 0 scrape errors. Pre-launch VRAM 2,045 MiB, after load 11,461 MiB, peak 11,840 MiB. Cache hit 0.86, 0 purges. Model sha256 `d98cdcbd…` matches.
+- Note: the manifest recorded `repo_dirty: true`. Commit before measured runs so every result maps to a commit.

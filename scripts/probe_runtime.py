@@ -174,7 +174,7 @@ def main() -> None:
     if a.url:
         probe(a.url, slot_save_enabled=True)
     else:
-        cfg = load_server_config({"ctx_size": a.ctx, "parallel": a.np, "slot_save_path": str(out_dir / "slots")})
+        cfg = load_server_config({"ctx_size": a.ctx, "parallel": a.np, "slot_save_path": str(out_dir / "slots"), "kv_unified": False})
         (out_dir / "slots").mkdir(exist_ok=True)
         REPORT["server_cmd"] = build_cmd(local, cfg)
         with Server(local, cfg, out_dir / "server.log") as s:

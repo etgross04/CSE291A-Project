@@ -5,7 +5,8 @@ One task = one agent run (CLAUDE.md s6.3), following the semantics in runner/wor
 After each step except the last: sleep tool_delay_s, then append the tool output.
 
 A task stops at its first failed request and takes that request's status (no retries). Task statuses:
-ok | timeout | http_error | ctx_overflow | truncated | server_crash | runner_error.
+ok | timeout | http_error | ctx_overflow | kv_exhausted | truncated | server_crash | runner_error.
+A task whose KV reservation exceeds the whole pool is rejected at admission and recorded as ctx_overflow.
 `timeout` at task level means the per-task deadline passed (checked before each step and tool call).
 
 Drivers:
@@ -20,7 +21,7 @@ import time
 import traceback
 from typing import Callable
 
-from runner.scheduler import Scheduler
+from runner.scheduler import AdmissionRejected, Scheduler
 
 LogFn = Callable[[dict], None]
 
@@ -51,7 +52,8 @@ async def run_task(task: dict, *, sched: Scheduler, corpus, prefix_ids: list[int
             rec["total_queue_s"] += queue_s
             rec["total_model_s"] += res.end_t - res.dispatch_t
             log_request({"task_id": task["task_id"], "step": j, "slot": req.slot, "enqueue_t": req.enqueue_t,
-                         "queue_s": queue_s, "prompt_tokens_expected": expected, **res.log_record()})
+                         "queue_s": queue_s, "prompt_tokens_expected": expected,
+                         "cache_expected": req.cache_expected, **res.log_record()})
             if res.status != "ok":
                 rec.update(status=res.status, failed_step=j, error=res.error)
                 break
@@ -65,6 +67,8 @@ async def run_task(task: dict, *, sched: Scheduler, corpus, prefix_ids: list[int
                 await asyncio.sleep(step["tool_delay_s"])
                 rec["total_tool_s"] += time.monotonic() - t0
                 ctx = ctx + corpus.slice(step["tool_out"])
+    except AdmissionRejected as e:  # declared peak context exceeds the whole KV pool: can never run
+        rec.update(status="ctx_overflow", failed_step=0, error=f"admission rejected: {e}")
     except Exception as e:  # noqa: BLE001 -- recorded, never swallowed silently
         rec.update(status="runner_error", error=f"{type(e).__name__}: {e}\n{traceback.format_exc(limit=3)}")
     finally:
@@ -96,7 +100,8 @@ async def run_open(tasks: list[dict], *, log_task: LogFn, t0: float | None = Non
 
     async def one(task: dict) -> None:
         arrival = t0 + task["arrival_s"]
-        await asyncio.sleep(max(0.0, arrival - time.monotonic()))
+        while (left := arrival - time.monotonic()) > 0:  # Windows timers can wake a few ms early
+            await asyncio.sleep(left)
         rec = await run_task(task, arrival_t=arrival, **kw)
         log_task(rec)
         out.append(rec)

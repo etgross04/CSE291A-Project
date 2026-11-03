@@ -1,0 +1,22 @@
+# Same as trace_agentic, but with the heavy-tailed tool delays of real coding agents (TraceLab).
+#   init_ctx, out : sampled from the Mooncake FAST'25 tool & agent trace (configs/trace_manifest.json).
+#                   Mooncake has no session ids, so only per-request lengths are taken from it.
+#   steps         : 5-12, spanning Continuum's BFCL (6.3 +/- 2.3 turns) and SWE-bench (10.9 +/- 2.1) traces.
+#   tool_out      : tokens appended per step; TraceLab median append ~857 tokens (incl. the response).
+#   tool_delay    : lognormal fitted to TraceLab Claude Code tool calls (median 0.3 s, p90 13.6 s ->
+#                   sigma 2.98; gives ~66% < 1 s and ~4% > 60 s vs. 70% / 4.9% reported), clipped at 120 s.
+#   max_peak_ctx  : 32768 (Qwen3 native context); longer tasks are redrawn and counted in meta.
+name: trace_agentic_heavy
+seed: 1000
+num_tasks: 60
+arrival: {type: closed, agents: 16}
+shared_prefix_tokens: 512
+task_classes:
+  - name: trace_agent_heavy
+    weight: 1.0
+    steps: {dist: uniform_int, low: 5, high: 12}
+    init_ctx: {dist: empirical, trace: mooncake_toolagent, column: input_length, min: 256, max: 16384}
+    out: {dist: empirical, trace: mooncake_toolagent, column: output_length, min: 1, max: 2048}
+    tool_out: {dist: lognormal_int, median: 800, sigma: 1.0, min: 16, max: 8192}
+    tool_delay: {dist: lognormal, median_s: 0.3, sigma: 2.98, max_s: 120.0}
+    max_peak_ctx: 32768

@@ -6,9 +6,10 @@ fit: "off"               # --fit; default 'on' silently changes unset -c / -ngl 
 flash_attn: "on"         # -fa; default 'auto'
 cache_type_k: f16        # -ctk
 cache_type_v: f16        # -ctv
-ctx_size: 32768          # -c ; total KV capacity in tokens (split across slots unless unified)
+ctx_size: 32768          # -c ; total KV capacity in tokens = the shared pool (the memory budget)
 parallel: 4              # -np ; = K for the FIFO baseline
-kv_unified: false        # -kvu / -no-kvu ; default is ON only when -np is auto
+kv_unified: true         # -kvu ; ONE shared pool, every slot may use up to -c (TA decision 2026-11-02, "option B").
+                         #   The scheduler reserves each task's peak from it at admission. false = static c/np split.
 cache_ram: 0             # -cram MiB; host-RAM prompt cache (default 8192!). 0 = disabled (baseline decision 2026-11-02)
 cache_idle_slots: false  # --cache-idle-slots (default on; needs cache_ram)
 cache_reuse: 0           # --cache-reuse; KV-shift chunk reuse, default 0 (off)
@@ -18,4 +19,5 @@ batch_size: 2048         # -b default
 ubatch_size: 512         # -ub default
 metrics: true            # --metrics (Prometheus /metrics)
 webui: false             # --no-webui
-slot_save_path: null     # --slot-save-path; set for save/restore probes
+slot_save_path: auto     # --slot-save-path; needed for /slots erase (scheduler frees finished tasks' KV).
+                         #   auto = <results_dir>/slot_saves. Enables the endpoint only; nothing is saved unless asked.

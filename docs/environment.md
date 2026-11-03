@@ -61,6 +61,10 @@ Status: **set 2026-11-02, verified.** `-c 81920` now fails at load with `cudaMal
 
 Six Project Gutenberg books (`scripts/fetch_corpus.py`) → `C:\llm\corpus\corpus.txt`, 7,015,423 bytes, sha256 `d3bf5c23238a1e45a3a0ecd365ec675a3dad5cba7c3808327de83e0a4582bd86`. Per-book hashes in `configs/corpus_manifest.json`; check with `--verify`.
 
+## Public traces (workload calibration only)
+
+Mooncake FAST'25 tool & agent trace, kvcache-ai/Mooncake @ `3cca71daccf2a7afb8fe3f0295358f70e3a69fdb` (Apache-2.0), `toolagent_trace.jsonl`, 23,608 rows, sha256 `48a2db1a13d3bc05e6330140c64f604ba366df20d3c9e128b5c35a01c1fa5f71`. Pinned in `configs/trace_manifest.json`; `scripts/fetch_traces.py` downloads into `traces_dir` (`C:\llm\traces`) and verifies the hash (`--verify` to check only).
+
 ## Local paths
 
 `configs/local.yaml` (gitignored, copy from `configs/local.example.yaml`): llama-server path, model path, results dir `C:\llm\results`.

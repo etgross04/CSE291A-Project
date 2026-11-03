@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from runner.corpus import PREFIX_REGION
+from runner import workload_gen as wg
 from runner.workload_gen import MAX_MODEL_CTX, dumps_tasks, generate, write
 
 REPO = Path(__file__).resolve().parents[1]
@@ -19,6 +20,22 @@ N_CORPUS = 1_500_000  # stand-in corpus size; generation depends only on this co
 
 def load(p: Path) -> dict:
     return yaml.safe_load(p.read_text())
+
+
+def _needs_trace(p: Path) -> bool:
+    return b"dist: empirical" in p.read_bytes()
+
+
+@pytest.fixture(autouse=True)
+def _skip_without_trace(request):
+    """Trace-calibrated workloads need the pinned trace file (scripts/fetch_traces.py); skip if absent."""
+    path = request.node.callspec.params.get("path") if hasattr(request.node, "callspec") else None
+    if path is not None and _needs_trace(path):
+        try:
+            for name in wg.trace_hashes(load(path)):
+                wg.load_trace(name)
+        except (SystemExit, FileNotFoundError, KeyError) as e:
+            pytest.skip(f"trace file not available: {e}")
 
 
 @pytest.mark.parametrize("path", WORKLOADS, ids=lambda p: p.stem)
@@ -90,6 +107,46 @@ def test_class_weights_respected():
 def test_stress_is_fixed_size():
     tasks = generate(load(WL_DIR / "stress.yaml"), 1000, N_CORPUS)
     assert {t["peak_ctx_tokens"] for t in tasks} == {512 + 4096 + 8 * 256 + 7 * 1024}
+
+
+@pytest.fixture
+def fake_trace(monkeypatch):
+    monkeypatch.setitem(wg._TRACE_CACHE, "fake", {"a": [5, 50, 500, 5000], "b": [1, 2, 3, 4]})
+    monkeypatch.setattr(wg, "_EMP_CACHE", {})
+    return "fake"
+
+
+def test_empirical_draws_only_trace_values_in_range(fake_trace):
+    import random
+    rng = random.Random(0)
+    spec = {"dist": "empirical", "trace": fake_trace, "column": "a", "min": 10, "max": 1000}
+    vals = {wg.sample(spec, rng) for _ in range(400)}
+    assert vals == {50, 500}
+
+
+def test_max_peak_ctx_redraws_deterministically(fake_trace):
+    cls = {"name": "c", "weight": 1, "steps": {"dist": "uniform_int", "low": 1, "high": 3},
+           "init_ctx": {"dist": "empirical", "trace": fake_trace, "column": "a"}, "out": 10,
+           "tool_out": 10, "tool_delay": 0.0, "max_peak_ctx": 600}
+    wl = {"name": "t", "num_tasks": 50, "arrival": {"type": "closed", "agents": 1},
+          "shared_prefix_tokens": 0, "task_classes": [cls]}
+    a, b = generate(wl, 7, N_CORPUS), generate(wl, 7, N_CORPUS)
+    assert dumps_tasks(a) == dumps_tasks(b)
+    assert all(t["peak_ctx_tokens"] <= 600 for t in a)
+    assert sum(t["redraws"] for t in a) > 0  # 5000-token inits must have been redrawn
+
+
+def test_trace_variants_share_tasks_except_delays():
+    """trace_agentic and trace_agentic_heavy differ only in tool delays (paired comparison for E4)."""
+    a, b = load(WL_DIR / "trace_agentic.yaml"), load(WL_DIR / "trace_agentic_heavy.yaml")
+    try:
+        ta, tb = generate(a, 1000, N_CORPUS), generate(b, 1000, N_CORPUS)
+    except (SystemExit, FileNotFoundError) as e:
+        pytest.skip(f"trace file not available: {e}")
+    strip = lambda t: {**t, "task_id": None, "class": None, "total_tool_delay_s": None,  # noqa: E731
+                       "steps": [{**s, "tool_delay_s": None} for s in t["steps"]]}
+    assert [strip(t) for t in ta] == [strip(t) for t in tb]
+    assert sum(t["total_tool_delay_s"] for t in tb) > 3 * sum(t["total_tool_delay_s"] for t in ta)
 
 
 # Same value under Python 3.12.10 and 3.14.3 on Windows (2026-11-02).

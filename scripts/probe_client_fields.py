@@ -30,7 +30,7 @@ def main() -> None:
     local = load_local()
     corpus = Corpus(local)
     out = Path(local["results_dir"]) / "probes" / ("client_" + datetime.now().strftime("%Y%m%d-%H%M%S"))
-    cfg = load_server_config({"ctx_size": 8192, "parallel": 2})
+    cfg = load_server_config({"ctx_size": 8192, "parallel": 2, "kv_unified": False})
     prompt = corpus.slice({"offset": 100_000, "len": 1000})
     report = {}
     with Server(local, cfg, out / "server.log") as s, httpx.Client(base_url=s.base_url, timeout=300) as c:

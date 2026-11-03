@@ -7,7 +7,11 @@ Behaviour verified on b11721 (scripts/probe_client_fields.py, notebook 2026-11-0
   * Prompt fits but prompt + n_predict does not -> HTTP 200, `truncated: true`, fewer tokens than asked.
     That is a SILENT failure unless checked here.
 
-Status values: ok | timeout | http_error | ctx_overflow | truncated | server_crash. No retries, ever.
+  * Unified KV pool full while every slot is busy -> HTTP 500 "Context size has been exceeded." for ALL
+    in-flight requests (scripts/probe_kvu.py) -> `kv_exhausted`.
+
+Status values: ok | timeout | http_error | ctx_overflow | kv_exhausted | truncated | server_crash.
+No retries, ever.
 """
 from __future__ import annotations
 
@@ -96,7 +100,8 @@ class LlamaClient:
                     continue
                 chunk = json.loads(line[6:])
                 if "error" in chunk:  # error delivered inside the stream
-                    res.status, res.error = "http_error", json.dumps(chunk["error"])[:500]
+                    res.status = LlamaClient._classify_error_obj(chunk["error"])
+                    res.error = json.dumps(chunk["error"])[:500]
                     return
                 toks = chunk.get("tokens") or []
                 if toks and res.first_token_t is None:
@@ -124,9 +129,23 @@ class LlamaClient:
             err = json.loads(raw).get("error", {})
         except (json.JSONDecodeError, AttributeError):
             err = {}
-        if isinstance(err, dict) and err.get("type") == "exceed_context_size_error":
+        return LlamaClient._classify_error_obj(err)
+
+    @staticmethod
+    def _classify_error_obj(err) -> str:
+        if not isinstance(err, dict):
+            return "http_error"
+        if err.get("type") == "exceed_context_size_error":
             return "ctx_overflow"
+        if "Context size has been exceeded" in str(err.get("message", "")):
+            return "kv_exhausted"  # unified pool ran out of cells mid-batch
         return "http_error"
+
+    async def erase_slot(self, slot_id: int) -> None:
+        """Free a slot's KV cells (needs --slot-save-path). Raises on failure."""
+        r = await self._http.post(f"/slots/{slot_id}?action=erase")
+        if r.status_code != 200:
+            raise RuntimeError(f"erase slot {slot_id}: HTTP {r.status_code} {r.text[:200]}")
 
     @staticmethod
     def _classify_finished(res: CompletionResult) -> str:
@@ -148,7 +167,7 @@ async def _smoke() -> None:
 
     local = load_local()
     corpus = Corpus(local)
-    cfg = load_server_config({"ctx_size": 8192, "parallel": 2})
+    cfg = load_server_config({"ctx_size": 8192, "parallel": 2, "kv_unified": False})
     with Server(local, cfg, Path(local["results_dir"]) / "client_smoke" / "server.log") as s:
         c = LlamaClient(s.base_url, request_timeout_s=60)
         keys = ("status", "id_slot", "n_prompt", "tokens_processed", "cached_tokens", "generated_tokens")
