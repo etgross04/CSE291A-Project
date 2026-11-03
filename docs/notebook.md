@@ -191,3 +191,27 @@ E4 pilot (agentic, constant delays, K=4, 24 tasks, rep0, all VALID):
 - E6 pools 65,536/49,152/32,768/24,576/16,384 → **65,536/32,768/24,576/16,384**.
 - New plan: E1 3, E2 90, E3 8, E4 42, E5 12, E6 16 = 171 runs.
 - Each run made from uncommitted code now writes `repo.diff` (tracked changes vs `repo_commit` plus untracked files as new-file diffs; `manifest.repo_diff`). Checked: HEAD + patch reproduces the working tree. The E1/E4 pilot runs from earlier today predate this; they ran from 5943f33 + the uncommitted sweep-runner change.
+
+## 2026-11-03 — Pilots of E2, E3, E5, E6: all VALID (every experiment now piloted)
+
+Runs are rep0 of the full grids, from 5943f33 + `repo.diff` in each run dir.
+
+| exp | run | tasks ok | duration | p50 / p95 task | tasks/min | queue share | decode ms/tok p50 | busy slots mean / max | KV reserved mean / tracked mean |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | agentic K=1 (20 tasks) | 20/20 | 417 s | 217 / 332 | 2.88 | 90% | 7.8 | 0.45 / 1 | 6.0k / 3.9k |
+| E2 | agentic K=16 (60) | 60/60 | 360 s | 88 / 116 | 10.01 | 34% | 34.6 | 7.34 / 11 | 59.4k / 37.8k |
+| E2 | trace_agentic K=1 (20) | 20/20 | 405 s | 208 / 340 | 2.97 | 89% | 8.5 | 0.70 / 1 | 17.0k / 11.7k |
+| E2 | trace_agentic K=16 (60) | 60/60 | 1008 s | 254 / 327 | 3.57 | 76% | 17.4 | 3.00 / 4 | 56.5k / 36.2k |
+| E3 | growth_short K=4 | 24/24 | 269 s | 89 / 90 | 5.36 | 46% | 13.6 | 3.36 / 4 | 43.2k / 25.6k |
+| E3 | growth_long K=4 | 24/24 | 442 s | 138 / 166 | 3.26 | 58% | 16.1 | 2.62 / 3 | 53.7k / 39.2k |
+| E5 | agentic_p4096, erase | 24/24 | 218 s | 124 / 165 | 6.61 | 68% | 15.9 | 2.64 / 4 | 36.4k / 28.1k |
+| E5 | agentic_p4096, keep | 24/24 | 192 s | 105 / 141 | 7.51 | 68% | 16.4 | 2.45 / 4 | 36.1k / 29.8k |
+
+E6 (trace_agentic, K=4, 24 tasks, **no admission gate**): pool 65,536 → 20 ok, **4 kv_exhausted**, 51 "failed to find free space" warnings, 1 server purge; pool 24,576 → **all 24 kv_exhausted** in 50 s, 164 warnings, 2 purges. Both VALID: every failure is accounted for and classified. No live task lost cached tokens (the purge warning is from leftover KV).
+
+Observations:
+- **The pool, not K, bounds the trace mix.** At K=16 at most 4 slots are ever busy (mean 3.0). The reservation averages 56.5k of 65.5k while tracked KV averages 36.2k. Throughput is only 1.2× K=1 (3.57 vs 2.97 tasks/min). The agentic mix (small peaks) is K-bound instead: K=16 gives 3.5× K=1, at the cost of decode slowing from 7.8 to 34.6 ms/tok. **This is the strongest Phase 2 evidence so far**: reserving each task's declared peak wastes about a third of the pool exactly where memory is the limit. A policy that admits on estimated need (with the E6 gate-off failures as the risk to avoid) targets the gap.
+- **E6: without a gate, overflow is all-or-nothing.** One overflow fails every in-flight request, so failures come in bursts. At 24k nothing completes. The baseline gate never overflows but rejects or queues instead (gate-on points in the full grid).
+- E3: growth_long admits 3 tasks at a time (53,760 reserved = 3 × 17,920), as designed; growth_short reaches 4.
+- E5: keeping finished slots (the next task on the slot reuses the 4,096-token shared prefix) is 12% faster (192 vs 218 s). Cache hit on steps > 0 is the same (0.924); the gain is on each task's first step.
+- Timing: trace_agentic K=16 (60 tasks) took 17 min, the longest single run. Revised E2 estimate ≈ 8 h (trace_agentic dominates), full grid ≈ 13 h.
