@@ -5,7 +5,7 @@ else
 PY ?= .venv/bin/python
 endif
 
-.PHONY: env probe probe-kvu vram corpus traces workloads test check e1 e2 e3 e4 e5 e6 pilots plan
+.PHONY: env probe probe-kvu vram corpus traces workloads test check e1 e2 e3 e4 e5 e6 pilots plan e7 metrics figures
 
 env:      ## environment snapshot (incl. model sha256)
 	$(PY) scripts/check_env.py --hash-model
@@ -58,3 +58,12 @@ pilots:   ## the 2-3 point pilot of every experiment
 
 plan:     ## dry run: what every experiment would run and what is already DONE
 	for e in $(E1) $(E2) $(E3) $(E4) $(E5) $(E6); do $(SWEEP) $$e --dry-run | head -1; done
+
+e7:       ## idle-KV vs batch-size decode microbenchmark (~15 min)
+	$(PY) -m experiments.e7_idle_kv --reps 3
+
+metrics:  ## per-run + per-config metrics for every experiment -> results/<E>/
+	for e in E1 E2 E3 E4 E5 E6; do $(PY) -m analysis.metrics $$e || exit 1; done
+
+figures:  ## all Phase 1 figures from raw logs -> results/figures/ (run `make metrics` first for best-K marks)
+	$(PY) -m analysis.plots

@@ -215,3 +215,61 @@ Observations:
 - E3: growth_long admits 3 tasks at a time (53,760 reserved = 3 × 17,920), as designed; growth_short reaches 4.
 - E5: keeping finished slots (the next task on the slot reuses the 4,096-token shared prefix) is 12% faster (192 vs 218 s). Cache hit on steps > 0 is the same (0.924); the gain is on each task's first step.
 - Timing: trace_agentic K=16 (60 tasks) took 17 min, the longest single run. Revised E2 estimate ≈ 8 h (trace_agentic dominates), full grid ≈ 13 h.
+
+## 2026-11-03 — E2 launched; analysis/metrics.py and E7 written (branch `phase1-analysis`)
+
+- E2 started 02:40 from clean commit 66d6a71 as a detached process (survives the editor session); console in `C:\llm\results\sweeps\E2\console.log`.
+- New code is on branch `phase1-analysis` (worktree `C:\llm\wt\cse291a-analysis`), so the main checkout stays clean while E2 runs. Otherwise every E2 run would record a `repo.diff` of code it never executed.
+- `analysis/metrics.py` (`python -m analysis.metrics E2`) recomputes everything from raw logs:
+  - task p50/p95 (p99 only with ≥ 50 ok tasks), queue/admission/model/tool time;
+  - tasks/min and generated tok/s over [t0, t1] and over the **steady window** (first completion → last admission, kept if ≥ 25% of the run; decision option A);
+  - TTFT, decode ms/tok for outputs ≥ 32 tokens, prefill tok/s;
+  - recomputed prompt tokens, cache hit;
+  - peak VRAM over pre-launch, KV reserved vs tracked (unused reservation), slot/queue occupancy, policy overhead, server purges.
+  - Aggregates the median and min/max over VALID reps only. `exclusions.csv` lists invalid or missing runs with reasons.
+  - **Best fixed K per workload**: highest median tasks/min among configs with all reps valid and no failed task; within 2% of the best, lower p95 wins. Written to `results/E2/best_k.json`.
+  - Writes `results/<E>/{runs,summary,exclusions}.csv`. Tests in `tests/test_metrics.py`.
+- `experiments/e7_idle_kv.py` separates the two causes of the high-K decode slowdown:
+  - **A**: one active request with 0/8k/16k/32k/48k idle tokens in slots 1–3, -kvu vs static split, -np 4.
+  - **B**: B = 1/2/4/8/16 concurrent decoders with 2k contexts, prompts prefilled first so only decode is timed.
+  - Queued to start automatically when E2's process exits (~15 min; log `C:\llm\results\sweeps\E7_console.log`).
+- Tests: 110 pass.
+
+## 2026-11-03 — E2 + E7 complete; E1, E3–E6 launched; figures
+
+- **E2:** 90/90 runs VALID. One task failure in the whole sweep: trace_agentic K=8 rep0, task 0032 step 1,
+  `http_error` = httpx ConnectTimeout (client could not open a connection within 10 s); no server-side
+  error in the log. Kept, counted, not retried. It disqualifies K=8 for best-K, which does not change the
+  pick. Connect timeout left at 10 s (changing it would change the baseline).
+- **Best fixed K** (median tasks/min, 3 reps): chat 16, long_output 16, agentic 8, blend 4, trace_agentic 2,
+  long_context 1. long_context *loses* throughput with concurrency (16.6 → 7.4 tasks/min from K=1 to K=8).
+- **E7 (rep0, 3 reps per point):** with one active 2,000-token request, idle KV in the shared pool raises
+  decode 7.48 → 16.66 ms/tok and prefill 0.158 → 0.672 ms/tok at 48k idle tokens; the static split is flat
+  (7.5 ms/tok, 0.159 ms/tok). Batched decode: per-request 7.5 → 20.4 ms/tok from B=1 to B=16, aggregate
+  ~130 → 776 tok/s. => In the shared pool, KV held by idle (tool-waiting) agents taxes every active request;
+  this is the main cost behind the K=16 slowdown, separate from batching.
+- **trace_agentic K=16 timeline:** busy slots never exceed 4 while ~12 tasks wait for admission; reserved KV
+  sits near the 65,536 pool while runner-tracked KV is ~35–45k. The peak-reservation gate, not compute,
+  limits concurrency for this mix.
+- E1, E3, E4, E5, E6 launched 13:10 from clean main `66d6a71` (`C:\llm\results\sweeps\run_e1_e3_e6.ps1`,
+  log `E1_E3-E6_console.log`).
+- `analysis/plots.py` (+ `make figures`): all Phase 1 figures from raw logs into `results/figures/`.
+
+## 2026-11-03 — E1, E3–E6 complete (all 171 sweep runs VALID)
+
+Ran 13:10–18:23 from clean `66d6a71`. Metrics: `python -m analysis.metrics E<n>`; figures: `python -m analysis.plots`.
+
+- **E3 (context growth):** K=1→4 gains 2.3× tasks/min with 1k initial context (2.32→5.36) but only 1.6× with
+  8k (2.00→3.23); decode 9.6→16.1 ms/tok and peak tracked KV 53k at K=4 for growth_long.
+- **E4 (idle periods, agentic K=4):** pinned beats any at short tool delays (13.0 vs 7.6 tasks/min at 0 s;
+  recompute 114k vs 431k prompt tokens) but the order flips between 2 s and 5 s (6.4 vs 7.4 at 5 s; 2.5 vs 4.6
+  at 15 s): pinned slots hold KV through the tool call. Trace mixes: pinned ≈ any (within 3%) — a case where
+  the slot policy gives little benefit.
+- **E5 (reuse):** cache_prompt off costs 26% throughput without a shared prefix (9.20→6.77) and 53% with a
+  4,096-token prefix (6.58→3.10). Keeping finished slots (no erase) is neutral without a prefix (9.15 vs 9.20)
+  but +14% with one (6.58→7.50; recompute 198k→116k tokens), since new tasks reuse the prefix of finished ones.
+- **E6 (memory budget, trace_agentic K=4):** with the admission gate, 24/24 tasks complete at 65,536 and
+  32,768; at 24,576 and 16,384, 1 and 8 tasks are rejected as `ctx_overflow` (peak > pool, by design). Without
+  the gate, 4/24 fail `kv_exhausted` at 65,536 and **24/24** fail at every smaller pool (one overflow fails all
+  in-flight requests). Caveat: gated 16,384 shows 3.79 tasks/min over only the 16 smaller tasks — not
+  comparable to the full workload.

@@ -16,3 +16,7 @@ Each YAML expands to a list of single runs (`runner/run.py`); each run gets a fr
 
 Points with identical configs (e.g. the same K=4 run in two experiments) share one run directory, so a
 point already DONE in another experiment is not rerun.
+
+**E7 (idle KV vs batch size)** is a microbenchmark with its own server configs, not a sweep YAML:
+`python -m experiments.e7_idle_kv [--reps 3] [--rep N] [--only A|B]` (see the script's docstring).
+Output: `<results_dir>/runs/E7_idle_kv/rep<N>/` (rows.jsonl, summary.json, manifest.json, DONE).
