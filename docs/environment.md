@@ -8,11 +8,11 @@ Machine-readable snapshot: `python scripts/check_env.py --hash-model --out <run_
 |---|---|
 | OS | Windows 11 Pro 10.0.26200 (native, no WSL) |
 | CPU | AMD Ryzen 9 7900X (12C/24T) |
-| RAM | 32 GB (31.1 GiB visible). Note: CLAUDE.md says 48 GB; actual is 32 GB |
+| RAM | 32 GB (31.1 GiB visible) |
 | GPU | NVIDIA GeForce RTX 5070 Ti, 16303 MiB, Blackwell |
 | Driver | 616.56, CUDA driver API 13.4, **WDDM** (display attached) |
 | Idle VRAM used by desktop | ~1.2–2.3 GB, varies (see notebook 2026-11-02) |
-| Python | 3.12.10, venv at `C:\llm\venv-cse291a` (outside OneDrive), pins in `requirements.txt` |
+| Python | 3.12.10, venv at `C:\llm\venv-cse291a`, pins in `requirements.txt` |
 
 ## Inference runtime
 
@@ -31,7 +31,7 @@ curl -LO $B/llama-b11721-bin-win-cuda-13.4-x64.zip
 curl -LO $B/cudart-llama-bin-win-cuda-13.4-x64.zip   # unzip both into C:\llm\llama.cpp\b11721
 ```
 
-## Model (fixed for the whole project)
+## Model
 
 | Item | Value |
 |---|---|
@@ -54,7 +54,7 @@ See `configs/server_baseline.yaml`; `runner/server.py` builds the command line f
 
 ## Required driver setting (Windows)
 
-NVIDIA App (the Control Panel is gone on this driver) → program settings for `C:\llm\llama.cpp\b11721\llama-server.exe` → **CUDA sysmem fallback = Prefer No Sysmem Fallback**. Without this, allocations beyond VRAM silently spill to host RAM instead of failing (see notebook 2026-11-02).
+NVIDIA App (the Control Panel is gone on this driver) → program settings for `C:\llm\llama.cpp\b11721\llama-server.exe` → **CUDA sysmem fallback = Prefer No Sysmem Fallback**. Do this so allocations beyond VRAM do not silently spill to host RAM instead of failing.
 Status: **set 2026-11-02, verified.** `-c 81920` now fails at load with `cudaMalloc failed: out of memory`.
 
 ## Corpus
