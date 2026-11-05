@@ -201,7 +201,9 @@ failures and policy overhead, with Poisson arrivals at several rates and changin
 not unfairly delayed. Expected low-benefit cases: chat (no idle time) and the trace mixes for P2. The validity checks
 ensure no gain comes from skipped tasks or shorter outputs.
 
-\textbf{Reproducibility.} Sweeps: \texttt{python -m experiments.run\_sweep configs/experiments/E<n>\_*.yaml}
+\textbf{Reproducibility.} Code, configs and result tables:
+\url{https://github.com/etgross04/CSE291A-Project} (per-run and per-config metrics in \texttt{results/summaries/}; raw
+run logs, $\approx$265\,MB, on request). Sweeps: \texttt{python -m experiments.run\_sweep configs/experiments/E<n>\_*.yaml}
 (resumable); E7: \texttt{python -m experiments.e7\_idle\_kv}; analysis: \texttt{python -m analysis.metrics E<n>} and
 \texttt{python -m analysis.plots}. Runs used commit \texttt{66d6a71}; analysis code is at \texttt{36efa10}.
 

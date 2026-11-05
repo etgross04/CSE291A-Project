@@ -22,3 +22,10 @@ Thumbs.db
 .vscode/
 
 CLAUDE.md
+# LaTeX build files (keep .tex and .pdf)
+report/*.aux
+report/*.log
+report/*.out
+report/*.fls
+report/*.fdb_latexmk
+report/*.synctex.gz
